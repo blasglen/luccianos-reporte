@@ -162,79 +162,69 @@ def render_html(fecha, rows, totals, propias):
     anio_ant = str(fecha.year - 1)[2:]
     fecha_larga = f"{DIAS_ES[fecha.weekday()]} {fecha.day} DE {MESES_ES[fecha.month]} DE {fecha.year}"
 
-    BRANCH_DOT = {"Florida Mall": "#c9a14a", "Weston": "#c9a14a", "Vineland": "#c9a14a",
-                  "American Dream": "#8a8a8a", "Sawgrass": "#8a8a8a", "Aventura": "#8a8a8a"}
+    # Filas de la tabla detalle (variaciones en verde/rojo, resto en negro/gris)
+    detalle = ""
+    for r in rows:
+        c = "#1a7d2e" if r["pct"] >= 0 else "#c62828"
+        s = "+" if r["pct"] >= 0 else ""
+        dd = f"({money(r['diff'])})" if r["diff"] < 0 else f"(+{money(r['diff'])})"
+        detalle += f"""
+        <tr style="border-bottom:1px solid #e6e6e6;">
+          <td style="padding:14px 12px;font-weight:700;color:#000000;">{r['branch']}</td>
+          <td style="padding:14px 12px;text-align:right;color:#000000;font-weight:600;">{money(r['dia'])}</td>
+          <td style="padding:14px 12px;text-align:right;color:#000000;font-weight:600;">{money(r['a26'])}</td>
+          <td style="padding:14px 12px;text-align:right;color:#8a8a8a;">{money(r['a25'])}</td>
+          <td style="padding:14px 12px;text-align:right;"><span style="color:{c};font-weight:700;">{s}{r['pct']:.1f}%</span><br><span style="color:{c};font-size:11px;">{dd}</span></td>
+        </tr>"""
 
-    # KPI: venta del dia total, acum mes en curso, acum anio anterior
-    kpi_dia = money(totals["dia"])
-    kpi_a26 = money(totals["a26"])
-    kpi_a25 = money(totals["a25"])
-    tot_color = "#2e7d32" if totals["pct"] >= 0 else "#c62828"
+    tot_color = "#1a7d2e" if totals["pct"] >= 0 else "#c62828"
     tot_sign = "+" if totals["pct"] >= 0 else ""
     tot_diff = f"({money(totals['diff'])})" if totals["diff"] < 0 else f"(+{money(totals['diff'])})"
 
-    pr_color = "#2e7d32" if propias["pct"] >= 0 else "#c62828"
+    pr_color = "#1a7d2e" if propias["pct"] >= 0 else "#c62828"
     pr_sign = "+" if propias["pct"] >= 0 else ""
     pr_diff = f"({money(propias['diff'])})" if propias["diff"] < 0 else f"(+{money(propias['diff'])})"
-
-    # Filas de la tabla detalle
-    detalle = ""
-    for r in rows:
-        c = "#2e7d32" if r["pct"] >= 0 else "#c62828"
-        s = "+" if r["pct"] >= 0 else ""
-        dd = f"({money(r['diff'])})" if r["diff"] < 0 else f"(+{money(r['diff'])})"
-        dot = BRANCH_DOT.get(r["branch"], "#8a8a8a")
-        detalle += f"""
-        <tr style="border-bottom:1px solid #eee;">
-          <td style="padding:14px 12px;font-weight:700;color:#1a1a2e;">{r['branch']} <span style="color:{dot};">●</span></td>
-          <td style="padding:14px 12px;text-align:right;color:#1a1a2e;font-weight:600;">{money(r['dia'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#1a1a2e;font-weight:600;">{money(r['a26'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#9a9a9a;">{money(r['a25'])}</td>
-          <td style="padding:14px 12px;text-align:right;"><span style="color:{c};font-weight:700;">{s}{r['pct']:.1f}%</span><br><span style="color:{c};font-size:11px;">{dd}</span></td>
-        </tr>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f0f0f0;font-family:Arial,Helvetica,sans-serif;">
-<div style="max-width:640px;margin:0 auto;background:#ffffff;">
+<div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #000000;">
 
   <!-- HEADER -->
-  <div style="background:#16162b;padding:32px 32px 28px 32px;">
-    <div style="font-size:30px;font-weight:800;letter-spacing:1px;">
-      <span style="color:#ffffff;">LUCC</span><span style="color:#c9a14a;">IANO'S</span>
-    </div>
-    <div style="color:#9a9aae;font-size:13px;letter-spacing:3px;margin-top:6px;">REPORTE DE VENTAS DIARIO</div>
-    <div style="display:inline-block;background:#c9a14a;color:#16162b;font-weight:800;font-size:13px;letter-spacing:1px;padding:8px 16px;border-radius:6px;margin-top:18px;">
+  <div style="background:#000000;padding:32px;text-align:center;">
+    <img src="cid:logo" alt="Lucciano's" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;">
+    <div style="color:#bdbdbd;font-size:13px;letter-spacing:3px;margin-top:16px;">REPORTE DE VENTAS DIARIO</div>
+    <div style="display:inline-block;background:#ffffff;color:#000000;font-weight:800;font-size:13px;letter-spacing:1px;padding:8px 16px;border-radius:4px;margin-top:18px;">
       {fecha_larga}
     </div>
   </div>
 
   <!-- CONSOLIDADO -->
   <div style="padding:28px 32px 8px 32px;">
-    <div style="color:#9a9aae;font-size:12px;letter-spacing:3px;border-bottom:1px solid #eee;padding-bottom:14px;">CONSOLIDADO · 6 SUCURSALES</div>
+    <div style="color:#8a8a8a;font-size:12px;letter-spacing:3px;border-bottom:1px solid #000000;padding-bottom:14px;">CONSOLIDADO · 6 SUCURSALES</div>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;">
       <tr>
         <td width="33%" style="padding-right:8px;vertical-align:top;">
-          <div style="background:#16162b;border-radius:10px;padding:18px;">
-            <div style="color:#9a9aae;font-size:11px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#c9a14a;font-size:24px;font-weight:800;margin-top:6px;">{kpi_dia}</div>
-            <div style="color:#6f6f86;font-size:11px;margin-top:4px;">6 sucursales</div>
+          <div style="background:#000000;border-radius:8px;padding:18px;">
+            <div style="color:#bdbdbd;font-size:11px;letter-spacing:1px;">VENTA DEL DÍA</div>
+            <div style="color:#ffffff;font-size:24px;font-weight:800;margin-top:6px;">{money(totals['dia'])}</div>
+            <div style="color:#8a8a8a;font-size:11px;margin-top:4px;">6 sucursales</div>
           </div>
         </td>
         <td width="33%" style="padding:0 8px;vertical-align:top;">
-          <div style="background:#16162b;border-radius:10px;padding:18px;">
-            <div style="color:#9a9aae;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</div>
-            <div style="color:#c9a14a;font-size:24px;font-weight:800;margin-top:6px;">{kpi_a26}</div>
-            <div style="color:#6f6f86;font-size:11px;margin-top:4px;">mes en curso</div>
+          <div style="background:#000000;border-radius:8px;padding:18px;">
+            <div style="color:#bdbdbd;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</div>
+            <div style="color:#ffffff;font-size:24px;font-weight:800;margin-top:6px;">{money(totals['a26'])}</div>
+            <div style="color:#8a8a8a;font-size:11px;margin-top:4px;">mes en curso</div>
           </div>
         </td>
         <td width="33%" style="padding-left:8px;vertical-align:top;">
-          <div style="background:#f4f4f6;border-radius:10px;padding:18px;">
-            <div style="color:#9a9aae;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</div>
-            <div style="color:#1a1a2e;font-size:24px;font-weight:800;margin-top:6px;">{kpi_a25}</div>
-            <div style="color:#9a9aae;font-size:11px;margin-top:4px;">año anterior</div>
+          <div style="background:#ffffff;border:1px solid #000000;border-radius:8px;padding:18px;">
+            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</div>
+            <div style="color:#000000;font-size:24px;font-weight:800;margin-top:6px;">{money(totals['a25'])}</div>
+            <div style="color:#8a8a8a;font-size:11px;margin-top:4px;">año anterior</div>
             <div style="color:{tot_color};font-size:12px;font-weight:700;margin-top:4px;">{tot_sign}{totals['pct']:.1f}% {tot_diff}</div>
           </div>
         </td>
@@ -242,21 +232,21 @@ def render_html(fecha, rows, totals, propias):
     </table>
 
     <!-- PROPIAS -->
-    <div style="background:#fbf6e9;border:1px solid #f0e6cc;border-radius:10px;padding:20px;margin-top:18px;">
-      <div style="color:#c9a14a;font-size:12px;font-weight:700;letter-spacing:1px;">• PROPIAS · FLORIDA MALL · WESTON · VINELAND</div>
+    <div style="background:#ffffff;border:1px solid #000000;border-radius:8px;padding:20px;margin-top:18px;">
+      <div style="color:#000000;font-size:12px;font-weight:700;letter-spacing:1px;">• PROPIAS · FLORIDA MALL · WESTON · VINELAND</div>
       <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
         <tr>
           <td style="vertical-align:top;">
-            <div style="color:#6f6f86;font-size:11px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#1a1a2e;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['dia'])}</div>
+            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">VENTA DEL DÍA</div>
+            <div style="color:#000000;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['dia'])}</div>
           </td>
           <td style="vertical-align:top;">
-            <div style="color:#6f6f86;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</div>
-            <div style="color:#1a1a2e;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['a26'])}</div>
+            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</div>
+            <div style="color:#000000;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['a26'])}</div>
           </td>
           <td style="vertical-align:top;text-align:right;">
-            <div style="color:#9a9aae;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</div>
-            <div style="color:#1a1a2e;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['a25'])}</div>
+            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</div>
+            <div style="color:#000000;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['a25'])}</div>
             <div style="color:{pr_color};font-size:12px;font-weight:700;margin-top:2px;">{pr_sign}{propias['pct']:.1f}% {pr_diff}</div>
           </td>
         </tr>
@@ -266,23 +256,23 @@ def render_html(fecha, rows, totals, propias):
 
   <!-- DETALLE -->
   <div style="padding:24px 32px 36px 32px;">
-    <div style="color:#9a9aae;font-size:12px;letter-spacing:3px;">DETALLE POR SUCURSAL</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;border-collapse:collapse;">
+    <div style="color:#8a8a8a;font-size:12px;letter-spacing:3px;">DETALLE POR SUCURSAL</div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;border-collapse:collapse;border:1px solid #000000;">
       <thead>
-        <tr style="background:#f4f4f6;">
-          <th style="padding:12px;text-align:left;color:#9a9aae;font-size:11px;letter-spacing:1px;">SUCURSAL</th>
-          <th style="padding:12px;text-align:right;color:#9a9aae;font-size:11px;letter-spacing:1px;">DÍA</th>
-          <th style="padding:12px;text-align:right;color:#9a9aae;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</th>
-          <th style="padding:12px;text-align:right;color:#9a9aae;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</th>
-          <th style="padding:12px;text-align:right;color:#9a9aae;font-size:11px;letter-spacing:1px;">VARIACIÓN</th>
+        <tr style="background:#000000;">
+          <th style="padding:12px;text-align:left;color:#ffffff;font-size:11px;letter-spacing:1px;">SUCURSAL</th>
+          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">DÍA</th>
+          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</th>
+          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</th>
+          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">VARIACIÓN</th>
         </tr>
       </thead>
       <tbody>{detalle}
-        <tr style="border-top:2px solid #16162b;">
-          <td style="padding:16px 12px;font-weight:800;color:#16162b;">TOTAL</td>
-          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#16162b;">{money(totals['dia'])}</td>
-          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#16162b;">{money(totals['a26'])}</td>
-          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#16162b;">{money(totals['a25'])}</td>
+        <tr style="border-top:2px solid #000000;background:#f7f7f7;">
+          <td style="padding:16px 12px;font-weight:800;color:#000000;">TOTAL</td>
+          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#000000;">{money(totals['dia'])}</td>
+          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#000000;">{money(totals['a26'])}</td>
+          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#000000;">{money(totals['a25'])}</td>
           <td style="padding:16px 12px;text-align:right;"><span style="color:{tot_color};font-weight:800;">{tot_sign}{totals['pct']:.1f}%</span><br><span style="color:{tot_color};font-size:11px;">{tot_diff}</span></td>
         </tr>
       </tbody>
