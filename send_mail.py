@@ -1,6 +1,9 @@
 """
 Envia el reporte HTML por Gmail via SMTP usando un App Password.
-El logo se incrusta como adjunto inline (Content-ID: logo), referenciado en el HTML como cid:logo.
+Incrusta imagenes inline (Content-ID) referenciadas en el HTML como cid:<nombre>:
+  - cid:logo        -> Logo.png
+  - cid:comparativo -> charts/comparativo.png
+  - cid:progreso    -> charts/progreso.png
 
 Variables de entorno (inyectadas por GitHub Actions desde Secrets):
   GMAIL_USER      -> casilla emisora (la cuenta gmail que envia)
@@ -16,44 +19,52 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from pathlib import Path
 
+# (cid, ruta)
+INLINE_IMAGES = [
+    ("logo", "Logo.png"),
+    ("comparativo", "charts/comparativo.png"),
+    ("progreso", "charts/progreso.png"),
+]
 
-def send(subject, html, to=None, logo_path="Logo.png"):
+
+def _attach_inline(root, cid, path):
+    p = Path(path)
+    if not p.exists():
+        print(f"[AVISO] No encontre {path}; el mail sale sin esa imagen (cid:{cid}).")
+        return
+    img = MIMEImage(p.read_bytes())
+    img.add_header("Content-ID", f"<{cid}>")
+    img.add_header("Content-Disposition", "inline", filename=p.name)
+    root.attach(img)
+
+
+def send(subject, html, to=None):
     user = os.environ["GMAIL_USER"]
     pwd = os.environ["GMAIL_APP_PASS"]
     raw = to or os.environ["MAIL_TO"]
 
-    # Separar por coma, limpiar espacios y descartar vacios
     destinatarios = [d.strip() for d in raw.split(",") if d.strip()]
     if not destinatarios:
         raise ValueError("MAIL_TO no tiene ninguna direccion valida.")
 
-    to_addr = destinatarios[0]        # primero -> Para
-    cc_addrs = destinatarios[1:]      # resto  -> CC
-    all_rcpts = destinatarios         # todos reciben (lo que importa para el envio real)
+    to_addr = destinatarios[0]
+    cc_addrs = destinatarios[1:]
+    all_rcpts = destinatarios
 
-    # 'related' permite incrustar imagenes referenciadas por cid: dentro del HTML.
     root = MIMEMultipart("related")
     root["Subject"] = subject
-    root["From"] = f"Lucciano's Reportes <{user}>"
+    root["From"] = f"Lucciano's USA <{user}>"
     root["To"] = to_addr
     if cc_addrs:
         root["Cc"] = ", ".join(cc_addrs)
 
-    # Parte alternativa: texto plano + HTML
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText("Tu cliente no soporta HTML. Abri el reporte en un cliente compatible.", "plain", "utf-8"))
     alt.attach(MIMEText(html, "html", "utf-8"))
     root.attach(alt)
 
-    # Logo inline (cid:logo)
-    p = Path(logo_path)
-    if p.exists():
-        img = MIMEImage(p.read_bytes())
-        img.add_header("Content-ID", "<logo>")
-        img.add_header("Content-Disposition", "inline", filename="Logo.png")
-        root.attach(img)
-    else:
-        print(f"[AVISO] No encontre {logo_path}; el mail sale sin logo.")
+    for cid, path in INLINE_IMAGES:
+        _attach_inline(root, cid, path)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
         s.login(user, pwd)

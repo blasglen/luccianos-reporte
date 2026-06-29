@@ -54,7 +54,7 @@ def _to_float(v):
 
 
 def parse_excel(path):
-    """Devuelve (fecha_date, dict_consolidado_por_sucursal) usando Net Sales (columna C)."""
+    """Devuelve (fecha_inicio, fecha_fin, dict_consolidado_por_sucursal) usando Net Sales (columna C)."""
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
@@ -64,6 +64,7 @@ def parse_excel(path):
     m = re.search(r"(\d{4}-\d{2}-\d{2})\s*/\s*(\d{4}-\d{2}-\d{2})", title)
     if not m:
         raise ValueError(f"No pude leer la fecha del titulo del Excel: {title!r}")
+    fecha_ini = datetime.strptime(m.group(1), "%Y-%m-%d").date()
     fecha_fin = datetime.strptime(m.group(2), "%Y-%m-%d").date()
 
     consolidado = {b: 0.0 for b in BRANCH_ORDER}
@@ -74,19 +75,20 @@ def parse_excel(path):
         if name not in VENUE_MAP:
             raise ValueError(f"Venue desconocido en {path}: {name!r}. Agregalo a VENUE_MAP.")
         consolidado[VENUE_MAP[name]] += _to_float(r[2])  # col C = Net Sales
-    return fecha_fin, consolidado
+    return fecha_ini, fecha_fin, consolidado
 
 
 def load_accumulator(path):
+    """Estado: {month: 'YYYY-MM', last_date: 'YYYY-MM-DD', acumulado: {sucursal: monto}}.
+    Si no existe, arranca vacio (el reinicio mensual lo deja en cero al primer uso)."""
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(
-            f"No existe {path}. Cargá el seed inicial (acumulado previo por sucursal)."
-        )
+        return {"month": None, "last_date": None, "acumulado": {}}
     return json.loads(p.read_text(encoding="utf-8"))
 
 
 def save_accumulator(path, data):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -95,12 +97,44 @@ def money(v):
 
 
 def build_report(ventas_path, acum25_path, acum_state_path):
-    fecha, venta_dia = parse_excel(ventas_path)
-    _, acum25 = parse_excel(acum25_path)
+    fecha_ini_v, fecha, venta_dia = parse_excel(ventas_path)
+    a25_ini, a25_fin, acum25 = parse_excel(acum25_path)
+
+    # Validacion: ambos Excel deben referirse al mismo mes y terminar el mismo dia (comparacion espejo).
+    # Ventas_ayer = un dia (fecha). Acumulado_interanual = rango del anio anterior, mismo mes, hasta el mismo dia.
+    errores = []
+    if a25_fin.year != fecha.year - 1:
+        errores.append(
+            f"El Acumulado_interanual parece NO ser del año anterior: termina en {a25_fin.year}, "
+            f"se esperaba {fecha.year - 1}."
+        )
+    if a25_fin.month != fecha.month:
+        errores.append(
+            f"Los meses no coinciden: Ventas es de {MES_CORTO[fecha.month]} y "
+            f"Acumulado_interanual es de {MES_CORTO[a25_fin.month]}. "
+            f"Subí el acumulado {fecha.year - 1} del mismo mes."
+        )
+    if a25_fin.day != fecha.day:
+        errores.append(
+            f"Los días de corte no coinciden: Ventas es del día {fecha.day} y "
+            f"el Acumulado_interanual llega hasta el día {a25_fin.day}. "
+            f"Deben terminar el mismo día para comparar período espejo."
+        )
+
+    if errores:
+        gh_out = os.environ.get("GITHUB_OUTPUT")
+        if gh_out:
+            with open(gh_out, "a", encoding="utf-8") as f:
+                f.write("send=false\n")
+        print("[ERROR DE VALIDACION] No se envía el mail:")
+        for e in errores:
+            print("  - " + e)
+        sys.exit(1)
 
     state = load_accumulator(acum_state_path)
+    mes_actual = fecha.strftime("%Y-%m")  # ej. "2026-06"
 
-    # Proteccion anti doble-conteo
+    # Proteccion anti doble-conteo (misma fecha ya procesada)
     if state.get("last_date") == fecha.isoformat():
         gh_out = os.environ.get("GITHUB_OUTPUT")
         if gh_out:
@@ -109,9 +143,14 @@ def build_report(ventas_path, acum25_path, acum_state_path):
         print(f"[SKIP] La fecha {fecha} ya fue procesada. No se suma de nuevo ni se envia mail.")
         sys.exit(0)
 
-    acum_prev = state["acumulado"]  # acumulado del mes ANTES de hoy, por sucursal
+    # Reinicio mensual: si cambio el mes (o es la primera corrida), el acumulado arranca en cero.
+    if state.get("month") != mes_actual:
+        print(f"[MES NUEVO] {state.get('month')} -> {mes_actual}. Acumulado reiniciado a cero.")
+        acum_prev = {b: 0.0 for b in BRANCH_ORDER}
+    else:
+        acum_prev = state.get("acumulado", {})
 
-    # Acum.26 = previo + venta del dia
+    # Acum.26 = previo (del mes en curso) + venta del dia
     acum26 = {b: round(acum_prev.get(b, 0.0) + venta_dia[b], 2) for b in BRANCH_ORDER}
 
     rows = []
@@ -139,11 +178,19 @@ def build_report(ventas_path, acum25_path, acum_state_path):
     propias["diff"] = propias["a26"] - propias["a25"]
     propias["pct"] = (propias["diff"] / propias["a25"] * 100) if propias["a25"] else 0.0
 
-    # Persistir el nuevo acumulado y la fecha procesada
-    new_state = {"last_date": fecha.isoformat(), "acumulado": acum26}
+    # Persistir el nuevo acumulado, el mes activo y la fecha procesada
+    new_state = {"month": mes_actual, "last_date": fecha.isoformat(), "acumulado": acum26}
+
+    # Graficos (PNG para incrustar via CID)
+    from charts import build_charts
+    mes = MES_CORTO[fecha.month]
+    a26_lbl = f"Acum. {mes}/{str(fecha.year)[2:]}"
+    a25_lbl = f"Acum. {mes}/{str(fecha.year - 1)[2:]}"
+    base_dir = Path(acum_state_path).parent.parent
+    chart_paths = build_charts(rows, totals, mes, a26_lbl, a25_lbl, out_dir=str(base_dir / "charts"))
 
     html = render_html(fecha, rows, totals, propias)
-    return html, new_state, fecha, totals
+    return html, new_state, fecha, totals, chart_paths
 
 
 def _pct_html(pct, diff):
@@ -158,128 +205,154 @@ def _pct_html(pct, diff):
 def render_html(fecha, rows, totals, propias):
     mes = MES_CORTO[fecha.month]
     anio_corto = str(fecha.year)[2:]
-    mes_ant = MES_CORTO[fecha.month]
     anio_ant = str(fecha.year - 1)[2:]
     fecha_larga = f"{DIAS_ES[fecha.weekday()]} {fecha.day} DE {MESES_ES[fecha.month]} DE {fecha.year}"
+    a26_lbl = f"ACUM. {mes.upper()}/{anio_corto}"
+    a25_lbl = f"ACUM. {mes.upper()}/{anio_ant}"
 
-    # Filas de la tabla detalle (variaciones en verde/rojo, resto en negro/gris)
+    def chip(pct, diff):
+        up = pct >= 0
+        col = "#1a7d2e" if up else "#c62828"
+        bg = "#eaf5ec" if up else "#fbecec"
+        s = "+" if up else ""
+        dd = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
+        return (f'<span style="display:inline-block;background:{bg};color:{col};'
+                f'font-weight:700;font-size:12px;padding:3px 9px;border-radius:20px;white-space:nowrap;">'
+                f'{s}{pct:.1f}%</span>'
+                f'<div style="color:{col};font-size:11px;margin-top:3px;">{dd}</div>')
+
+    # Filas de la tabla detalle
     detalle = ""
-    for r in rows:
-        c = "#1a7d2e" if r["pct"] >= 0 else "#c62828"
-        s = "+" if r["pct"] >= 0 else ""
-        dd = f"({money(r['diff'])})" if r["diff"] < 0 else f"(+{money(r['diff'])})"
+    for i, r in enumerate(rows):
+        zebra = "#ffffff" if i % 2 == 0 else "#fafafa"
         detalle += f"""
-        <tr style="border-bottom:1px solid #e6e6e6;">
-          <td style="padding:14px 12px;font-weight:700;color:#000000;">{r['branch']}</td>
-          <td style="padding:14px 12px;text-align:right;color:#000000;font-weight:600;">{money(r['dia'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#000000;font-weight:600;">{money(r['a26'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#8a8a8a;">{money(r['a25'])}</td>
-          <td style="padding:14px 12px;text-align:right;"><span style="color:{c};font-weight:700;">{s}{r['pct']:.1f}%</span><br><span style="color:{c};font-size:11px;">{dd}</span></td>
+        <tr style="background:{zebra};">
+          <td style="padding:15px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}</td>
+          <td style="padding:15px 12px;text-align:right;color:#111111;font-size:14px;">{money(r['dia'])}</td>
+          <td style="padding:15px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
+          <td style="padding:15px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
+          <td style="padding:15px 18px;text-align:right;">{chip(r['pct'], r['diff'])}</td>
         </tr>"""
-
-    tot_color = "#1a7d2e" if totals["pct"] >= 0 else "#c62828"
-    tot_sign = "+" if totals["pct"] >= 0 else ""
-    tot_diff = f"({money(totals['diff'])})" if totals["diff"] < 0 else f"(+{money(totals['diff'])})"
-
-    pr_color = "#1a7d2e" if propias["pct"] >= 0 else "#c62828"
-    pr_sign = "+" if propias["pct"] >= 0 else ""
-    pr_diff = f"({money(propias['diff'])})" if propias["diff"] < 0 else f"(+{money(propias['diff'])})"
 
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f0f0f0;font-family:Arial,Helvetica,sans-serif;">
-<div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #000000;">
+<body style="margin:0;padding:0;background:#eeeeee;">
+<!-- wrapper tabla: centra en TODOS los clientes, incluido Outlook -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eeeeee;">
+<tr><td align="center" style="padding:24px 12px;">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,0.12);">
 
   <!-- HEADER -->
-  <div style="background:#000000;padding:32px;text-align:center;">
-    <img src="cid:logo" alt="Lucciano's" width="200" style="display:block;margin:0 auto;max-width:200px;height:auto;">
-    <div style="color:#bdbdbd;font-size:13px;letter-spacing:3px;margin-top:16px;">REPORTE DE VENTAS DIARIO</div>
-    <div style="display:inline-block;background:#ffffff;color:#000000;font-weight:800;font-size:13px;letter-spacing:1px;padding:8px 16px;border-radius:4px;margin-top:18px;">
-      {fecha_larga}
-    </div>
-  </div>
+  <tr><td style="background:#000000;padding:38px 32px 32px 32px;text-align:center;">
+    <img src="cid:logo" alt="Lucciano's" width="190" style="display:block;margin:0 auto;max-width:190px;height:auto;">
+    <div style="color:#bdbdbd;font-size:12px;letter-spacing:4px;margin-top:18px;">REPORTE DE VENTAS DIARIO</div>
+    <div style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:2px;margin-top:14px;">{fecha_larga}</div>
+  </td></tr>
 
-  <!-- CONSOLIDADO -->
-  <div style="padding:28px 32px 8px 32px;">
-    <div style="color:#8a8a8a;font-size:12px;letter-spacing:3px;border-bottom:1px solid #000000;padding-bottom:14px;">CONSOLIDADO · 6 SUCURSALES</div>
-
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;">
+  <!-- KPIs -->
+  <tr><td style="padding:30px 32px 6px 32px;">
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;">CONSOLIDADO · 6 SUCURSALES</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
       <tr>
-        <td width="33%" style="padding-right:8px;vertical-align:top;">
-          <div style="background:#000000;border-radius:8px;padding:18px;">
-            <div style="color:#bdbdbd;font-size:11px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#ffffff;font-size:24px;font-weight:800;margin-top:6px;">{money(totals['dia'])}</div>
-            <div style="color:#8a8a8a;font-size:11px;margin-top:4px;">6 sucursales</div>
+        <td width="33%" style="padding-right:7px;vertical-align:top;">
+          <div style="background:#111111;border-radius:12px;padding:20px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DEL DÍA</div>
+            <div style="color:#ffffff;font-size:23px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['dia'])}</div>
+            <div style="color:#777777;font-size:11px;margin-top:6px;">6 sucursales</div>
           </div>
         </td>
-        <td width="33%" style="padding:0 8px;vertical-align:top;">
-          <div style="background:#000000;border-radius:8px;padding:18px;">
-            <div style="color:#bdbdbd;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</div>
-            <div style="color:#ffffff;font-size:24px;font-weight:800;margin-top:6px;">{money(totals['a26'])}</div>
-            <div style="color:#8a8a8a;font-size:11px;margin-top:4px;">mes en curso</div>
+        <td width="34%" style="padding:0 7px;vertical-align:top;">
+          <div style="background:#111111;border-radius:12px;padding:20px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a26_lbl}</div>
+            <div style="color:#ffffff;font-size:23px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a26'])}</div>
+            <div style="color:#777777;font-size:11px;margin-top:6px;">mes en curso</div>
           </div>
         </td>
-        <td width="33%" style="padding-left:8px;vertical-align:top;">
-          <div style="background:#ffffff;border:1px solid #000000;border-radius:8px;padding:18px;">
-            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</div>
-            <div style="color:#000000;font-size:24px;font-weight:800;margin-top:6px;">{money(totals['a25'])}</div>
-            <div style="color:#8a8a8a;font-size:11px;margin-top:4px;">año anterior</div>
-            <div style="color:{tot_color};font-size:12px;font-weight:700;margin-top:4px;">{tot_sign}{totals['pct']:.1f}% {tot_diff}</div>
+        <td width="33%" style="padding-left:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:20px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a25_lbl}</div>
+            <div style="color:#111111;font-size:23px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a25'])}</div>
+            <div style="margin-top:8px;">{chip(totals['pct'], totals['diff'])}</div>
           </div>
         </td>
       </tr>
     </table>
+  </td></tr>
 
-    <!-- PROPIAS -->
-    <div style="background:#ffffff;border:1px solid #000000;border-radius:8px;padding:20px;margin-top:18px;">
-      <div style="color:#000000;font-size:12px;font-weight:700;letter-spacing:1px;">• PROPIAS · FLORIDA MALL · WESTON · VINELAND</div>
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
+  <!-- PROGRESO -->
+  <tr><td style="padding:22px 32px 6px 32px;">
+    <div style="background:#fafafa;border-radius:12px;padding:20px 22px;">
+      <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:6px;">AVANCE DEL MES vs AÑO ANTERIOR</div>
+      <img src="cid:progreso" alt="Avance del mes" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
+    </div>
+  </td></tr>
+
+  <!-- PROPIAS -->
+  <tr><td style="padding:18px 32px 6px 32px;">
+    <div style="background:#fafafa;border-radius:12px;padding:22px;">
+      <div style="color:#111111;font-size:12px;font-weight:700;letter-spacing:1px;">PROPIAS · FLORIDA MALL · WESTON · VINELAND</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
         <tr>
           <td style="vertical-align:top;">
-            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#000000;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['dia'])}</div>
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DEL DÍA</div>
+            <div style="color:#111111;font-size:19px;font-weight:800;margin-top:5px;">{money(propias['dia'])}</div>
           </td>
           <td style="vertical-align:top;">
-            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</div>
-            <div style="color:#000000;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['a26'])}</div>
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a26_lbl}</div>
+            <div style="color:#111111;font-size:19px;font-weight:800;margin-top:5px;">{money(propias['a26'])}</div>
           </td>
           <td style="vertical-align:top;text-align:right;">
-            <div style="color:#8a8a8a;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</div>
-            <div style="color:#000000;font-size:18px;font-weight:800;margin-top:4px;">{money(propias['a25'])}</div>
-            <div style="color:{pr_color};font-size:12px;font-weight:700;margin-top:2px;">{pr_sign}{propias['pct']:.1f}% {pr_diff}</div>
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a25_lbl}</div>
+            <div style="color:#111111;font-size:19px;font-weight:800;margin-top:5px;">{money(propias['a25'])}</div>
+            <div style="margin-top:6px;">{chip(propias['pct'], propias['diff'])}</div>
           </td>
         </tr>
       </table>
     </div>
-  </div>
+  </td></tr>
+
+  <!-- GRAFICO COMPARATIVO -->
+  <tr><td style="padding:22px 32px 6px 32px;">
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">COMPARATIVO POR SUCURSAL · {anio_corto} vs {anio_ant}</div>
+    <img src="cid:comparativo" alt="Comparativo por sucursal" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
+  </td></tr>
 
   <!-- DETALLE -->
-  <div style="padding:24px 32px 36px 32px;">
-    <div style="color:#8a8a8a;font-size:12px;letter-spacing:3px;">DETALLE POR SUCURSAL</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;border-collapse:collapse;border:1px solid #000000;">
+  <tr><td style="padding:24px 32px 36px 32px;">
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:14px;">DETALLE POR SUCURSAL</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.06);">
       <thead>
-        <tr style="background:#000000;">
-          <th style="padding:12px;text-align:left;color:#ffffff;font-size:11px;letter-spacing:1px;">SUCURSAL</th>
-          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">DÍA</th>
-          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">ACUM. {mes.upper()}/{anio_corto}</th>
-          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">ACUM. {mes_ant.upper()}/{anio_ant}</th>
-          <th style="padding:12px;text-align:right;color:#ffffff;font-size:11px;letter-spacing:1px;">VARIACIÓN</th>
+        <tr style="background:#111111;">
+          <th style="padding:13px 18px;text-align:left;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">SUCURSAL</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">DÍA</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a26_lbl}</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a25_lbl}</th>
+          <th style="padding:13px 18px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">VARIACIÓN</th>
         </tr>
       </thead>
       <tbody>{detalle}
-        <tr style="border-top:2px solid #000000;background:#f7f7f7;">
-          <td style="padding:16px 12px;font-weight:800;color:#000000;">TOTAL</td>
-          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#000000;">{money(totals['dia'])}</td>
-          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#000000;">{money(totals['a26'])}</td>
-          <td style="padding:16px 12px;text-align:right;font-weight:800;color:#000000;">{money(totals['a25'])}</td>
-          <td style="padding:16px 12px;text-align:right;"><span style="color:{tot_color};font-weight:800;">{tot_sign}{totals['pct']:.1f}%</span><br><span style="color:{tot_color};font-size:11px;">{tot_diff}</span></td>
+        <tr style="background:#f5f5f5;">
+          <td style="padding:17px 18px;font-weight:800;color:#111111;font-size:14px;">TOTAL</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#111111;font-size:14px;">{money(totals['dia'])}</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#111111;font-size:14px;">{money(totals['a26'])}</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#111111;font-size:14px;">{money(totals['a25'])}</td>
+          <td style="padding:17px 18px;text-align:right;">{chip(totals['pct'], totals['diff'])}</td>
         </tr>
       </tbody>
     </table>
-  </div>
+  </td></tr>
 
-</div>
+  <!-- FOOTER -->
+  <tr><td style="background:#000000;padding:20px 32px;text-align:center;">
+    <div style="color:#777777;font-size:11px;letter-spacing:1px;">LUCCIANO'S USA · Reporte automático generado el {fecha.strftime('%d/%m/%Y')}</div>
+  </td></tr>
+
+</table>
+
+</td></tr>
+</table>
 </body>
 </html>"""
     return html
@@ -289,18 +362,15 @@ if __name__ == "__main__":
     base = Path(__file__).parent
     ventas = base / "Ventas_ayer.xlsx"
     acum25 = base / "Acumulado_interanual.xlsx"
-    state = base / "data" / "acum_jun26.json"
+    state = base / "data" / "acumulado.json"
 
-    html, new_state, fecha, totals = build_report(ventas, acum25, state)
+    html, new_state, fecha, totals, chart_paths = build_report(ventas, acum25, state)
 
     (base / "preview.html").write_text(html, encoding="utf-8")
     save_accumulator(state, new_state)
 
-    # Asunto del mail: "Ventas <DD/MM/YYYY> | Acum <mes>: $X (var%)"
-    var_txt = f"{'+' if totals['pct'] >= 0 else ''}{totals['pct']:.1f}%"
-    subject = (f"Reporte Ventas {fecha.strftime('%d/%m/%Y')} | "
-               f"Día {money(totals['dia'])} · Acum {MES_CORTO[fecha.month]}/{str(fecha.year)[2:]} "
-               f"{money(totals['a26'])} ({var_txt} vs {fecha.year - 1})")
+    # Asunto: "Reporte Ventas DD/MM/YYYY - Lucciano's USA"
+    subject = f"Reporte Ventas {fecha.strftime('%d/%m/%Y')} - Lucciano's USA"
 
     # Exponer salidas al workflow de GitHub Actions
     gh_out = os.environ.get("GITHUB_OUTPUT")
