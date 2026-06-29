@@ -1,0 +1,59 @@
+name: Reporte de Ventas Diario
+
+# Se dispara al hacer push de cualquiera de los dos Excel a la rama main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Ventas_ayer.xlsx"
+      - "Acumulado_interanual.xlsx"
+  workflow_dispatch: {}   # permite tambien correrlo a mano desde la pestania Actions
+
+# Necesario para que el bot pueda commitear el acumulado actualizado de vuelta al repo.
+permissions:
+  contents: write
+
+# Evita que dos pushes seguidos corran en paralelo y pisen el acumulado.
+concurrency:
+  group: reporte-ventas
+  cancel-in-progress: false
+
+jobs:
+  enviar-reporte:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install openpyxl
+
+      - name: Generar reporte (y actualizar acumulado)
+        id: gen
+        run: python report.py
+
+      - name: Enviar mail
+        if: steps.gen.outputs.send == 'true'
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python send_mail.py "${{ steps.gen.outputs.subject }}" preview.html
+
+      - name: Commitear acumulado actualizado
+        if: steps.gen.outputs.send == 'true'
+        run: |
+          git config user.name "luccianos-bot"
+          git config user.email "bot@luccianos.local"
+          git add data/acum_jun26.json
+          if git diff --cached --quiet; then
+            echo "Sin cambios en el acumulado."
+          else
+            git commit -m "Acumulado actualizado al ${{ steps.gen.outputs.date }} [skip ci]"
+            git push
+          fi
