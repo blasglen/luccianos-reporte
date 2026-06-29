@@ -35,8 +35,9 @@ VENUE_MAP = {
 # Orden de aparicion en la tabla de detalle
 BRANCH_ORDER = ["Florida Mall", "Weston", "Vineland", "American Dream", "Sawgrass", "Aventura"]
 
-# Sucursales "PROPIAS" (seccion destacada en el mail)
+# Sucursales "PROPIAS" y "FRANQUICIAS"
 PROPIAS = ["Florida Mall", "Weston", "Vineland"]
+FRANQUICIAS = ["American Dream", "Sawgrass", "Aventura"]
 
 MESES_ES = {
     1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
@@ -170,13 +171,18 @@ def build_report(ventas_path, acum25_path, acum_state_path):
     totals["diff"] = totals["a26"] - totals["a25"]
     totals["pct"] = (totals["diff"] / totals["a25"] * 100) if totals["a25"] else 0.0
 
-    propias = {
-        "dia": sum(r["dia"] for r in rows if r["branch"] in PROPIAS),
-        "a26": sum(r["a26"] for r in rows if r["branch"] in PROPIAS),
-        "a25": sum(r["a25"] for r in rows if r["branch"] in PROPIAS),
-    }
-    propias["diff"] = propias["a26"] - propias["a25"]
-    propias["pct"] = (propias["diff"] / propias["a25"] * 100) if propias["a25"] else 0.0
+    def subtotal(grupo):
+        s = {
+            "dia": sum(r["dia"] for r in rows if r["branch"] in grupo),
+            "a26": sum(r["a26"] for r in rows if r["branch"] in grupo),
+            "a25": sum(r["a25"] for r in rows if r["branch"] in grupo),
+        }
+        s["diff"] = s["a26"] - s["a25"]
+        s["pct"] = (s["diff"] / s["a25"] * 100) if s["a25"] else 0.0
+        return s
+
+    propias = subtotal(PROPIAS)
+    franquicias = subtotal(FRANQUICIAS)
 
     # Persistir el nuevo acumulado, el mes activo y la fecha procesada
     new_state = {"month": mes_actual, "last_date": fecha.isoformat(), "acumulado": acum26}
@@ -189,7 +195,7 @@ def build_report(ventas_path, acum25_path, acum_state_path):
     base_dir = Path(acum_state_path).parent.parent
     chart_paths = build_charts(rows, totals, mes, a26_lbl, a25_lbl, out_dir=str(base_dir / "charts"))
 
-    html = render_html(fecha, rows, totals, propias)
+    html = render_html(fecha, rows, totals, propias, franquicias)
     return html, new_state, fecha, totals, chart_paths
 
 
@@ -202,7 +208,7 @@ def _pct_html(pct, diff):
     return f'<span style="color:{color};font-weight:700;">{sign}{pct:.1f}%</span><br><span style="color:{color};font-size:12px;">{diff_str}</span>'
 
 
-def render_html(fecha, rows, totals, propias):
+def render_html(fecha, rows, totals, propias, franquicias):
     mes = MES_CORTO[fecha.month]
     anio_corto = str(fecha.year)[2:]
     anio_ant = str(fecha.year - 1)[2:]
@@ -221,24 +227,47 @@ def render_html(fecha, rows, totals, propias):
                 f'{s}{pct:.1f}%</span>'
                 f'<div style="color:{col};font-size:11px;margin-top:3px;">{dd}</div>')
 
-    # Filas de la tabla detalle
-    detalle = ""
-    for i, r in enumerate(rows):
-        zebra = "#ffffff" if i % 2 == 0 else "#fafafa"
-        detalle += f"""
+    def fila(r, zebra):
+        return f"""
         <tr style="background:{zebra};">
-          <td style="padding:15px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}</td>
-          <td style="padding:15px 12px;text-align:right;color:#111111;font-size:14px;">{money(r['dia'])}</td>
-          <td style="padding:15px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
-          <td style="padding:15px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
-          <td style="padding:15px 18px;text-align:right;">{chip(r['pct'], r['diff'])}</td>
+          <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}</td>
+          <td style="padding:14px 12px;text-align:right;color:#111111;font-size:14px;">{money(r['dia'])}</td>
+          <td style="padding:14px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
+          <td style="padding:14px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
+          <td style="padding:14px 18px;text-align:right;">{chip(r['pct'], r['diff'])}</td>
         </tr>"""
+
+    def encabezado_grupo(nombre):
+        return f"""
+        <tr style="background:#eef1f6;">
+          <td colspan="5" style="padding:9px 18px;color:#1f3a6e;font-size:10px;font-weight:800;letter-spacing:2px;">{nombre}</td>
+        </tr>"""
+
+    def fila_subtotal(nombre, s):
+        return f"""
+        <tr style="background:#f5f5f5;border-top:1px solid #e2e2e2;">
+          <td style="padding:14px 18px;font-weight:800;color:#1f3a6e;font-size:13px;">{nombre}</td>
+          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#1f3a6e;font-size:13px;">{money(s['dia'])}</td>
+          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#1f3a6e;font-size:13px;">{money(s['a26'])}</td>
+          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#7a8aa5;font-size:13px;">{money(s['a25'])}</td>
+          <td style="padding:14px 18px;text-align:right;">{chip(s['pct'], s['diff'])}</td>
+        </tr>"""
+
+    by_name = {r["branch"]: r for r in rows}
+    cuerpo = ""
+    cuerpo += encabezado_grupo("PROPIAS")
+    for i, b in enumerate(PROPIAS):
+        cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
+    cuerpo += fila_subtotal("Subtotal Propias", propias)
+    cuerpo += encabezado_grupo("FRANQUICIAS")
+    for i, b in enumerate(FRANQUICIAS):
+        cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
+    cuerpo += fila_subtotal("Subtotal Franquicias", franquicias)
 
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#eeeeee;">
-<!-- wrapper tabla: centra en TODOS los clientes, incluido Outlook -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eeeeee;">
 <tr><td align="center" style="padding:24px 12px;">
 
@@ -251,29 +280,29 @@ def render_html(fecha, rows, totals, propias):
     <div style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:2px;margin-top:14px;">{fecha_larga}</div>
   </td></tr>
 
-  <!-- KPIs -->
+  <!-- KPIs (alturas igualadas con height fijo en el contenido) -->
   <tr><td style="padding:30px 32px 6px 32px;">
     <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;">CONSOLIDADO · 6 SUCURSALES</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
       <tr>
         <td width="33%" style="padding-right:7px;vertical-align:top;">
-          <div style="background:#111111;border-radius:12px;padding:20px;">
+          <div style="background:#111111;border-radius:12px;padding:20px;height:118px;">
             <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#ffffff;font-size:23px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['dia'])}</div>
+            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['dia'])}</div>
             <div style="color:#777777;font-size:11px;margin-top:6px;">6 sucursales</div>
           </div>
         </td>
         <td width="34%" style="padding:0 7px;vertical-align:top;">
-          <div style="background:#111111;border-radius:12px;padding:20px;">
+          <div style="background:#111111;border-radius:12px;padding:20px;height:118px;">
             <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a26_lbl}</div>
-            <div style="color:#ffffff;font-size:23px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a26'])}</div>
+            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a26'])}</div>
             <div style="color:#777777;font-size:11px;margin-top:6px;">mes en curso</div>
           </div>
         </td>
         <td width="33%" style="padding-left:7px;vertical-align:top;">
-          <div style="background:#f5f5f5;border-radius:12px;padding:20px;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:20px;height:118px;">
             <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a25_lbl}</div>
-            <div style="color:#111111;font-size:23px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a25'])}</div>
+            <div style="color:#111111;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a25'])}</div>
             <div style="margin-top:8px;">{chip(totals['pct'], totals['diff'])}</div>
           </div>
         </td>
@@ -286,30 +315,6 @@ def render_html(fecha, rows, totals, propias):
     <div style="background:#fafafa;border-radius:12px;padding:20px 22px;">
       <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:6px;">AVANCE DEL MES vs AÑO ANTERIOR</div>
       <img src="cid:progreso" alt="Avance del mes" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
-    </div>
-  </td></tr>
-
-  <!-- PROPIAS -->
-  <tr><td style="padding:18px 32px 6px 32px;">
-    <div style="background:#fafafa;border-radius:12px;padding:22px;">
-      <div style="color:#111111;font-size:12px;font-weight:700;letter-spacing:1px;">PROPIAS · FLORIDA MALL · WESTON · VINELAND</div>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
-        <tr>
-          <td style="vertical-align:top;">
-            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#111111;font-size:19px;font-weight:800;margin-top:5px;">{money(propias['dia'])}</div>
-          </td>
-          <td style="vertical-align:top;">
-            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a26_lbl}</div>
-            <div style="color:#111111;font-size:19px;font-weight:800;margin-top:5px;">{money(propias['a26'])}</div>
-          </td>
-          <td style="vertical-align:top;text-align:right;">
-            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a25_lbl}</div>
-            <div style="color:#111111;font-size:19px;font-weight:800;margin-top:5px;">{money(propias['a25'])}</div>
-            <div style="margin-top:6px;">{chip(propias['pct'], propias['diff'])}</div>
-          </td>
-        </tr>
-      </table>
     </div>
   </td></tr>
 
@@ -332,12 +337,12 @@ def render_html(fecha, rows, totals, propias):
           <th style="padding:13px 18px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">VARIACIÓN</th>
         </tr>
       </thead>
-      <tbody>{detalle}
-        <tr style="background:#f5f5f5;">
-          <td style="padding:17px 18px;font-weight:800;color:#111111;font-size:14px;">TOTAL</td>
-          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#111111;font-size:14px;">{money(totals['dia'])}</td>
-          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#111111;font-size:14px;">{money(totals['a26'])}</td>
-          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#111111;font-size:14px;">{money(totals['a25'])}</td>
+      <tbody>{cuerpo}
+        <tr style="background:#111111;">
+          <td style="padding:17px 18px;font-weight:800;color:#ffffff;font-size:14px;">TOTAL GENERAL</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['dia'])}</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a26'])}</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a25'])}</td>
           <td style="padding:17px 18px;text-align:right;">{chip(totals['pct'], totals['diff'])}</td>
         </tr>
       </tbody>
