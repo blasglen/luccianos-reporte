@@ -423,8 +423,8 @@ async function sendEmail() {
 
   try {
     await emailjs.send('service_9zhdvtf', 'lsnuant', {
-      date:         entry.label,
-      html_content: htmlContent,
+      subject: `Reporte de Ventas · Lucciano's · ${entry.label}`,
+      message: htmlContent,
     });
     allBtns.forEach(b => { b.disabled = false; b.textContent = '✉ Enviar reporte'; });
     showToast('✓ Reporte enviado a admin@luccianos.us', 'success');
