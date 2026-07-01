@@ -1,19 +1,19 @@
 name: Reporte de Ventas Diario
 
-# Se dispara al hacer push de cualquiera de los dos Excel a la rama main.
+# Ahora corre por HORARIO (cron), no por push. Todo en un solo job:
+# bajar el mail de TouchBistro -> armar el 2025 -> tu report.py -> mandar mail.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "Ventas_ayer.xlsx"
-      - "Acumulado_interanual.xlsx"
-  workflow_dispatch: {}   # permite tambien correrlo a mano desde la pestania Actions
+  schedule:
+    # OJO: el cron esta en UTC. TouchBistro manda el reporte ~2hs despues del
+    # cierre del dia de servicio (horario US Eastern). Programa esto un rato
+    # DESPUES de que llega el mail. Default: 11:00 UTC (~7am ET en verano).
+    # Ajustalo una vez que veas a que hora te llega el mail automatico.
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}   # boton para correrlo a mano y probar
 
-# Necesario para que el bot pueda commitear el acumulado actualizado de vuelta al repo.
 permissions:
   contents: write
 
-# Evita que dos pushes seguidos corran en paralelo y pisen el acumulado.
 concurrency:
   group: reporte-ventas
   cancel-in-progress: false
@@ -33,6 +33,15 @@ jobs:
       - name: Instalar dependencias
         run: pip install openpyxl matplotlib
 
+      - name: Bajar reporte de TouchBistro (mail -> Ventas_ayer.xlsx)
+        env:
+          IMAP_USER: ${{ secrets.IMAP_USER }}
+          IMAP_APP_PASS: ${{ secrets.IMAP_APP_PASS }}
+        run: python fetch_touchbistro.py
+
+      - name: Armar Acumulado 2025 desde el master
+        run: python generar_acum2025.py
+
       - name: Generar reporte (y actualizar acumulado)
         id: gen
         run: python report.py
@@ -45,15 +54,15 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python send_mail.py "${{ steps.gen.outputs.subject }}" preview.html
 
-      - name: Commitear acumulado actualizado
+      - name: Commitear resultados
         if: steps.gen.outputs.send == 'true'
         run: |
           git config user.name "luccianos-bot"
           git config user.email "bot@luccianos.local"
-          git add data/acumulado.json charts/
+          git add data/acumulado.json charts/ Ventas_ayer.xlsx Acumulado_interanual.xlsx
           if git diff --cached --quiet; then
             echo "Sin cambios para commitear."
           else
-            git commit -m "Acumulado actualizado al ${{ steps.gen.outputs.date }} [skip ci]"
+            git commit -m "Reporte del ${{ steps.gen.outputs.date }} [skip ci]"
             git push
           fi
