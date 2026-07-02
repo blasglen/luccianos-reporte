@@ -1,15 +1,18 @@
 name: Reporte de Ventas Diario
 
-# Ahora corre por HORARIO (cron), no por push. Todo en un solo job:
-# bajar el mail de TouchBistro -> armar el 2025 -> tu report.py -> mandar mail.
+# DISPARADORES (3 formas de arrancar, en orden de prioridad):
+#   1. repository_dispatch -> lo dispara cron-job.org por API a las 7:30 AR (puntual).
+#   2. schedule (cron nativo) -> RED DE RESPALDO. Dispara 8:00 AR por si cron-job.org
+#      falla o tiene downtime. Como report.py tiene anti doble-conteo, si el reporte
+#      ya se mando a las 7:30, este corre, ve que la fecha ya se proceso y NO reenvia.
+#   3. workflow_dispatch -> boton manual para probar cuando quieras.
 on:
+  repository_dispatch:
+    types: [reporte-diario]
   schedule:
-    # OJO: el cron esta en UTC. TouchBistro manda el reporte ~2hs despues del
-    # cierre del dia de servicio (horario US Eastern). Programa esto un rato
-    # DESPUES de que llega el mail. Default: 11:00 UTC (~7am ET en verano).
-    # Ajustalo una vez que veas a que hora te llega el mail automatico.
+    # 11:00 UTC = 8:00 AR (UTC-3). Respaldo, media hora despues del disparo real.
     - cron: "0 11 * * *"
-  workflow_dispatch: {}   # boton para correrlo a mano y probar
+  workflow_dispatch: {}
 
 permissions:
   contents: write
