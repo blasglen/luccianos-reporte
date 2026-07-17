@@ -1,130 +1,418 @@
 {
   "2026-07-01": {
-    "Florida Mall": 2320.23,
-    "Weston": 979.96,
-    "Vineland": 1378.49,
-    "American Dream": 2816.52,
-    "Sawgrass": 4006.41,
-    "Aventura": 1117.46
+    "Florida Mall": {
+      "venta": 2320.23,
+      "tickets": 151
+    },
+    "Weston": {
+      "venta": 979.96,
+      "tickets": 68
+    },
+    "Vineland": {
+      "venta": 1378.49,
+      "tickets": 108
+    },
+    "American Dream": {
+      "venta": 2816.52,
+      "tickets": 134
+    },
+    "Sawgrass": {
+      "venta": 4006.41,
+      "tickets": 265
+    },
+    "Aventura": {
+      "venta": 1117.46,
+      "tickets": 64
+    }
   },
   "2026-07-02": {
-    "Florida Mall": 2643.3,
-    "Weston": 2138.95,
-    "Vineland": 479.42,
-    "American Dream": 3737.96,
-    "Sawgrass": 3781.2,
-    "Aventura": 1480.83
+    "Florida Mall": {
+      "venta": 2643.3,
+      "tickets": 180
+    },
+    "Weston": {
+      "venta": 2138.95,
+      "tickets": 131
+    },
+    "Vineland": {
+      "venta": 479.42,
+      "tickets": 41
+    },
+    "American Dream": {
+      "venta": 3737.96,
+      "tickets": 178
+    },
+    "Sawgrass": {
+      "venta": 3781.2,
+      "tickets": 232
+    },
+    "Aventura": {
+      "venta": 1480.83,
+      "tickets": 73
+    }
   },
   "2026-07-03": {
-    "Florida Mall": 3813.13,
-    "Weston": 2495.83,
-    "Vineland": 1341.61,
-    "American Dream": 7243.67,
-    "Sawgrass": 3942.07,
-    "Aventura": 2365.09
+    "Florida Mall": {
+      "venta": 3813.13,
+      "tickets": 236
+    },
+    "Weston": {
+      "venta": 2495.83,
+      "tickets": 158
+    },
+    "Vineland": {
+      "venta": 1341.61,
+      "tickets": 101
+    },
+    "American Dream": {
+      "venta": 7243.67,
+      "tickets": 369
+    },
+    "Sawgrass": {
+      "venta": 3942.07,
+      "tickets": 234
+    },
+    "Aventura": {
+      "venta": 2365.09,
+      "tickets": 120
+    }
   },
   "2026-07-04": {
-    "Florida Mall": 2812.24,
-    "Weston": 3911.26,
-    "Vineland": 1317.02,
-    "American Dream": 6674.61,
-    "Sawgrass": 5007.18,
-    "Aventura": 2998.0
+    "Florida Mall": {
+      "venta": 2812.24,
+      "tickets": 174
+    },
+    "Weston": {
+      "venta": 3911.26,
+      "tickets": 226
+    },
+    "Vineland": {
+      "venta": 1317.02,
+      "tickets": 106
+    },
+    "American Dream": {
+      "venta": 6674.61,
+      "tickets": 344
+    },
+    "Sawgrass": {
+      "venta": 5007.18,
+      "tickets": 310
+    },
+    "Aventura": {
+      "venta": 2998.0,
+      "tickets": 119
+    }
   },
   "2026-07-05": {
-    "Florida Mall": 3062.16,
-    "Weston": 3254.71,
-    "Vineland": 698.38,
-    "American Dream": 3988.29,
-    "Sawgrass": 4363.43,
-    "Aventura": 2112.53
+    "Florida Mall": {
+      "venta": 3062.16,
+      "tickets": 193
+    },
+    "Weston": {
+      "venta": 3254.71,
+      "tickets": 170
+    },
+    "Vineland": {
+      "venta": 698.38,
+      "tickets": 49
+    },
+    "American Dream": {
+      "venta": 3988.29,
+      "tickets": 247
+    },
+    "Sawgrass": {
+      "venta": 4363.43,
+      "tickets": 252
+    },
+    "Aventura": {
+      "venta": 2112.53,
+      "tickets": 104
+    }
   },
   "2026-07-06": {
-    "Florida Mall": 2028.58,
-    "Weston": 1363.6,
-    "Vineland": 1144.08,
-    "American Dream": 3399.89,
-    "Sawgrass": 3159.44,
-    "Aventura": 757.04
+    "Florida Mall": {
+      "venta": 2028.58,
+      "tickets": 142
+    },
+    "Weston": {
+      "venta": 1363.6,
+      "tickets": 80
+    },
+    "Vineland": {
+      "venta": 1144.08,
+      "tickets": 87
+    },
+    "American Dream": {
+      "venta": 3399.89,
+      "tickets": 194
+    },
+    "Sawgrass": {
+      "venta": 3159.44,
+      "tickets": 185
+    },
+    "Aventura": {
+      "venta": 757.04,
+      "tickets": 45
+    }
   },
   "2026-07-07": {
-    "Florida Mall": 2177.69,
-    "Weston": 1621.69,
-    "Vineland": 480.44,
-    "American Dream": 2196.03,
-    "Sawgrass": 1927.81,
-    "Aventura": 986.65
+    "Florida Mall": {
+      "venta": 2177.69,
+      "tickets": 147
+    },
+    "Weston": {
+      "venta": 1621.69,
+      "tickets": 106
+    },
+    "Vineland": {
+      "venta": 480.44,
+      "tickets": 42
+    },
+    "American Dream": {
+      "venta": 2196.03,
+      "tickets": 126
+    },
+    "Sawgrass": {
+      "venta": 1927.81,
+      "tickets": 125
+    },
+    "Aventura": {
+      "venta": 986.65,
+      "tickets": 65
+    }
   },
   "2026-07-08": {
-    "Florida Mall": 2302.41,
-    "Weston": 1637.74,
-    "Vineland": 587.3,
-    "American Dream": 2100.31,
-    "Sawgrass": 3700.63,
-    "Aventura": 1297.47
+    "Florida Mall": {
+      "venta": 2302.41,
+      "tickets": 160
+    },
+    "Weston": {
+      "venta": 1637.74,
+      "tickets": 102
+    },
+    "Vineland": {
+      "venta": 587.3,
+      "tickets": 59
+    },
+    "American Dream": {
+      "venta": 2100.31,
+      "tickets": 106
+    },
+    "Sawgrass": {
+      "venta": 3700.63,
+      "tickets": 202
+    },
+    "Aventura": {
+      "venta": 1297.47,
+      "tickets": 58
+    }
   },
   "2026-07-09": {
-    "Florida Mall": 1990.84,
-    "Weston": 1903.93,
-    "Vineland": 1084.68,
-    "American Dream": 2207.38,
-    "Sawgrass": 3344.65,
-    "Aventura": 1446.19
+    "Florida Mall": {
+      "venta": 1990.84,
+      "tickets": 123
+    },
+    "Weston": {
+      "venta": 1903.93,
+      "tickets": 115
+    },
+    "Vineland": {
+      "venta": 1084.68,
+      "tickets": 74
+    },
+    "American Dream": {
+      "venta": 2207.38,
+      "tickets": 133
+    },
+    "Sawgrass": {
+      "venta": 3344.65,
+      "tickets": 213
+    },
+    "Aventura": {
+      "venta": 1446.19,
+      "tickets": 86
+    }
   },
   "2026-07-10": {
-    "Florida Mall": 3003.28,
-    "Weston": 3567.04,
-    "Vineland": 1113.11,
-    "American Dream": 2818.36,
-    "Sawgrass": 3361.66,
-    "Aventura": 1725.79
+    "Florida Mall": {
+      "venta": 3003.28,
+      "tickets": 197
+    },
+    "Weston": {
+      "venta": 3567.04,
+      "tickets": 228
+    },
+    "Vineland": {
+      "venta": 1113.11,
+      "tickets": 80
+    },
+    "American Dream": {
+      "venta": 2818.36,
+      "tickets": 165
+    },
+    "Sawgrass": {
+      "venta": 3361.66,
+      "tickets": 212
+    },
+    "Aventura": {
+      "venta": 1725.79,
+      "tickets": 92
+    }
   },
   "2026-07-11": {
-    "Florida Mall": 4091.58,
-    "Weston": 3171.7,
-    "Vineland": 1614.04,
-    "American Dream": 6015.82,
-    "Sawgrass": 3987.09,
-    "Aventura": 3542.95
+    "Florida Mall": {
+      "venta": 4091.58,
+      "tickets": 264
+    },
+    "Weston": {
+      "venta": 3171.7,
+      "tickets": 196
+    },
+    "Vineland": {
+      "venta": 1614.04,
+      "tickets": 112
+    },
+    "American Dream": {
+      "venta": 6015.82,
+      "tickets": 344
+    },
+    "Sawgrass": {
+      "venta": 3987.09,
+      "tickets": 255
+    },
+    "Aventura": {
+      "venta": 3542.95,
+      "tickets": 125
+    }
   },
   "2026-07-12": {
-    "Florida Mall": 3368.81,
-    "Weston": 3483.05,
-    "Vineland": 1386.73,
-    "American Dream": 3851.01,
-    "Sawgrass": 4964.52,
-    "Aventura": 2034.55
+    "Florida Mall": {
+      "venta": 3368.81,
+      "tickets": 218
+    },
+    "Weston": {
+      "venta": 3483.05,
+      "tickets": 194
+    },
+    "Vineland": {
+      "venta": 1386.73,
+      "tickets": 101
+    },
+    "American Dream": {
+      "venta": 3851.01,
+      "tickets": 214
+    },
+    "Sawgrass": {
+      "venta": 4964.52,
+      "tickets": 279
+    },
+    "Aventura": {
+      "venta": 2034.55,
+      "tickets": 101
+    }
   },
   "2026-07-13": {
-    "Florida Mall": 1958.72,
-    "Weston": 1740.87,
-    "Vineland": 1167.32,
-    "American Dream": 2079.84,
-    "Sawgrass": 3385.85,
-    "Aventura": 1010.1
+    "Florida Mall": {
+      "venta": 1958.72,
+      "tickets": 144
+    },
+    "Weston": {
+      "venta": 1740.87,
+      "tickets": 101
+    },
+    "Vineland": {
+      "venta": 1167.32,
+      "tickets": 94
+    },
+    "American Dream": {
+      "venta": 2079.84,
+      "tickets": 107
+    },
+    "Sawgrass": {
+      "venta": 3385.85,
+      "tickets": 215
+    },
+    "Aventura": {
+      "venta": 1010.1,
+      "tickets": 56
+    }
   },
   "2026-07-14": {
-    "Florida Mall": 2200.76,
-    "Weston": 1847.68,
-    "Vineland": 1213.77,
-    "American Dream": 2221.62,
-    "Sawgrass": 2207.83,
-    "Aventura": 831.42
+    "Florida Mall": {
+      "venta": 2200.76,
+      "tickets": 146
+    },
+    "Weston": {
+      "venta": 1847.68,
+      "tickets": 122
+    },
+    "Vineland": {
+      "venta": 1213.77,
+      "tickets": 88
+    },
+    "American Dream": {
+      "venta": 2221.62,
+      "tickets": 125
+    },
+    "Sawgrass": {
+      "venta": 2207.83,
+      "tickets": 147
+    },
+    "Aventura": {
+      "venta": 831.42,
+      "tickets": 51
+    }
   },
   "2026-07-15": {
-    "Florida Mall": 2248.12,
-    "Weston": 3693.73,
-    "Vineland": 1333.9,
-    "American Dream": 2416.1,
-    "Sawgrass": 1653.19,
-    "Aventura": 987.93
+    "Florida Mall": {
+      "venta": 2248.12,
+      "tickets": 144
+    },
+    "Weston": {
+      "venta": 3693.73,
+      "tickets": 165
+    },
+    "Vineland": {
+      "venta": 1333.9,
+      "tickets": 108
+    },
+    "American Dream": {
+      "venta": 2416.1,
+      "tickets": 136
+    },
+    "Sawgrass": {
+      "venta": 1653.19,
+      "tickets": 120
+    },
+    "Aventura": {
+      "venta": 987.93,
+      "tickets": 59
+    }
   },
   "2026-07-16": {
-    "Florida Mall": 2542.72,
-    "Weston": 1845.89,
-    "Vineland": 1750.33,
-    "American Dream": 2940.36,
-    "Sawgrass": 3270.26,
-    "Aventura": 1413.52
+    "Florida Mall": {
+      "venta": 2542.72,
+      "tickets": 171
+    },
+    "Weston": {
+      "venta": 1845.89,
+      "tickets": 117
+    },
+    "Vineland": {
+      "venta": 1750.33,
+      "tickets": 134
+    },
+    "American Dream": {
+      "venta": 2940.36,
+      "tickets": 148
+    },
+    "Sawgrass": {
+      "venta": 3270.26,
+      "tickets": 208
+    },
+    "Aventura": {
+      "venta": 1413.52,
+      "tickets": 79
+    }
   }
 }
