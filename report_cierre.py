@@ -1,0 +1,362 @@
+"""
+Lucciano's - Reporte de CIERRE MENSUAL
+--------------------------------------
+Se manda el DIA 1 de cada mes y cubre el mes que acaba de cerrar, completo.
+
+POR QUE EL DIA 1 Y NO OTRO:
+  report.py mira la fecha del EXCEL, no la de hoy. Entonces:
+    - Dia 1, 7:00 -> procesa el ultimo dia del mes anterior -> mismo mes -> SUMA.
+      acumulado.json queda con el mes CERRADO y COMPLETO.
+    - Dia 2, 7:00 -> procesa el dia 1 del mes nuevo -> cambio de mes -> REINICIA.
+      El mes anterior se pierde de acumulado.json.
+  O sea que el mes cerrado existe en una ventana de 24 horas. Este reporte corre
+  adentro de esa ventana (dia 1, 8:00) y ademas lo GUARDA en data/cierres.json
+  antes de que el dia 2 lo pise. Ese archivo es el que, a fin de anio, te da la
+  serie mes a mes de 2026 sin haber hecho nada extra.
+
+El snapshot ES el candado: si el mes ya esta en cierres.json, no se reenvia.
+"""
+import argparse
+import json
+import os
+import sys
+from calendar import monthrange
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from report import BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel
+from generar_acum_ant import acumular_rango, escribir_excel, espejo
+
+BASE = Path(__file__).parent
+SALIDA_ANT = BASE / "Acumulado_cierre_ant.xlsx"
+ESTADO_DIARIO = BASE / "data" / "acumulado.json"
+CIERRES = BASE / "data" / "cierres.json"
+PREVIEW = BASE / "preview_cierre.html"
+
+
+def mes_a_cerrar(hoy=None):
+    """El mes que cerro. Corriendo el dia 1, es el mes anterior.
+
+    Si corre otro dia (prueba manual, o se atraso), igual devuelve el mes anterior
+    al de hoy. La validacion contra acumulado.json despues avisa si no da.
+    """
+    hoy = hoy or date.today()
+    primero = date(hoy.year, hoy.month, 1)
+    ultimo_ant = primero - __import__("datetime").timedelta(days=1)
+    return ultimo_ant.year, ultimo_ant.month
+
+
+def rango_mes(anio, mes):
+    return date(anio, mes, 1), date(anio, mes, monthrange(anio, mes)[1])
+
+
+def leer_acum_cerrado(dia1, ultimo):
+    """Trae el mes cerrado de acumulado.json, con validacion dura.
+
+    La ventana es de 24 horas. Si este reporte corre tarde (dia 2 o despues), el
+    diario ya reinicio y el mes se perdio: acumulado.json va a decir que es del
+    mes nuevo y esto corta. Es el escenario que hay que mirar si falla.
+    """
+    if not ESTADO_DIARIO.exists():
+        raise SystemExit(f"[ERROR] No existe {ESTADO_DIARIO.name}.")
+    st = json.loads(ESTADO_DIARIO.read_text(encoding="utf-8"))
+
+    mes_esperado = dia1.strftime("%Y-%m")
+    if st.get("month") != mes_esperado:
+        raise SystemExit(
+            f"[ERROR] El acumulado del diario dice ser del mes {st.get('month')} y "
+            f"se esperaba {mes_esperado}.\n"
+            f"        Si dice el mes SIGUIENTE, el diario ya reinicio y el cierre de "
+            f"{mes_esperado} se perdio de acumulado.json. Se puede recuperar del "
+            f"historial de commits del repo (buscar el commit del dia 1).\n"
+            f"        Este reporte tiene que correr el DIA 1, despues del diario."
+        )
+    if st.get("last_date") != ultimo.isoformat():
+        raise SystemExit(
+            f"[ERROR] El acumulado del diario esta cerrado al {st.get('last_date')} y "
+            f"el mes termina el {ultimo.isoformat()}.\n"
+            f"        Causa tipica: el diario del dia 1 (que procesa el ultimo dia del "
+            f"mes) no corrio o fallo. Arreglar eso y volver a correr este.\n"
+            f"        NO se manda: faltaria el ultimo dia del mes."
+        )
+
+    acum = st.get("acumulado", {})
+    faltan = [b for b in BRANCH_ORDER if b not in acum]
+    if faltan:
+        raise SystemExit(f"[ERROR] El acumulado del diario no tiene: {', '.join(faltan)}")
+    return {b: round(float(acum[b]), 2) for b in BRANCH_ORDER}
+
+
+# --- Snapshot / candado ---------------------------------------------------------
+def cargar_cierres():
+    if not CIERRES.exists():
+        return {}
+    return json.loads(CIERRES.read_text(encoding="utf-8"))
+
+
+def guardar_cierre(clave, dia1, ultimo, mes_act, mes_ant, totals):
+    cierres = cargar_cierres()
+    cierres[clave] = {
+        "desde": dia1.isoformat(),
+        "hasta": ultimo.isoformat(),
+        "total": round(totals["a26"], 2),
+        "total_anio_anterior": round(totals["a25"], 2),
+        "variacion_pct": round(totals["pct"], 2),
+        "por_sucursal": {b: mes_act[b] for b in BRANCH_ORDER},
+        "por_sucursal_anio_anterior": {b: round(mes_ant[b], 2) for b in BRANCH_ORDER},
+        "cerrado": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    CIERRES.parent.mkdir(parents=True, exist_ok=True)
+    CIERRES.write_text(
+        json.dumps({k: cierres[k] for k in sorted(cierres)}, indent=2, ensure_ascii=False),
+        encoding="utf-8")
+
+
+# --- Calculo --------------------------------------------------------------------
+def construir(dia1, ultimo):
+    mes_act = leer_acum_cerrado(dia1, ultimo)
+
+    ia, fa = espejo(dia1), espejo(ultimo)
+    acum_ant, faltan = acumular_rango(ia, fa)
+    if faltan:
+        print(f"[ERROR] Al master del anio anterior le faltan dias del rango {ia}..{fa}:")
+        for f in faltan:
+            print(f"  - {f.isoformat()}")
+        raise SystemExit(1)
+    escribir_excel(ia, fa, acum_ant, SALIDA_ANT)
+    _, _, mes_ant = parse_excel(SALIDA_ANT)
+
+    rows = []
+    for b in BRANCH_ORDER:
+        a26, a25 = mes_act[b], round(mes_ant[b], 2)
+        diff = a26 - a25
+        rows.append({"branch": b, "a26": a26, "a25": a25, "diff": diff,
+                     "pct": (diff / a25 * 100) if a25 else 0.0})
+
+    def agregar(items):
+        t = {"a26": round(sum(r["a26"] for r in items), 2),
+             "a25": round(sum(r["a25"] for r in items), 2)}
+        t["diff"] = t["a26"] - t["a25"]
+        t["pct"] = (t["diff"] / t["a25"] * 100) if t["a25"] else 0.0
+        return t
+
+    totals = agregar(rows)
+    # Participacion de cada sucursal sobre el total del mes: en el cierre si tiene
+    # sentido (en el diario no, porque un dia flojo de una sucursal te distorsiona).
+    for r in rows:
+        r["share"] = (r["a26"] / totals["a26"] * 100) if totals["a26"] else 0.0
+
+    return rows, totals, agregar([r for r in rows if r["branch"] in PROPIAS]), \
+        agregar([r for r in rows if r["branch"] in FRANQUICIAS]), mes_act, mes_ant, ia, fa
+
+
+# --- HTML -----------------------------------------------------------------------
+def chip(pct, diff, grande=False):
+    up = pct >= 0
+    col = "#1a7d2e" if up else "#c62828"
+    bg = "#eaf5ec" if up else "#fbecec"
+    s = "+" if up else ""
+    dd = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
+    fs = "17px" if grande else "12px"
+    return (f'<span style="display:inline-block;background:{bg};color:{col};'
+            f'font-weight:700;font-size:{fs};padding:4px 11px;border-radius:20px;'
+            f'white-space:nowrap;">{s}{pct:.1f}%</span>'
+            f'<div style="color:{col};font-size:11px;margin-top:4px;">{dd}</div>')
+
+
+def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa):
+    anio = ultimo.year
+    mes_txt = MESES_ES[ultimo.month]
+    a26_lbl = f"{MES_CORTO[ultimo.month].upper()}/{str(anio)[2:]}"
+    a25_lbl = f"{MES_CORTO[ultimo.month].upper()}/{str(anio - 1)[2:]}"
+    dias_mes = ultimo.day
+    prom = totals["a26"] / dias_mes
+
+    def fila(r, zebra):
+        return f"""
+        <tr style="background:{zebra};">
+          <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}
+            <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{r['share']:.1f}% del total</div>
+          </td>
+          <td style="padding:14px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
+          <td style="padding:14px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
+          <td style="padding:14px 18px;text-align:right;">{chip(r['pct'], r['diff'])}</td>
+        </tr>"""
+
+    def encabezado_grupo(nombre):
+        return f"""
+        <tr style="background:#eef1f6;">
+          <td colspan="4" style="padding:9px 18px;color:#1f3a6e;font-size:10px;font-weight:800;letter-spacing:2px;">{nombre}</td>
+        </tr>"""
+
+    def fila_subtotal(nombre, s):
+        return f"""
+        <tr style="background:#f5f5f5;border-top:1px solid #e2e2e2;">
+          <td style="padding:14px 18px;font-weight:800;color:#1f3a6e;font-size:13px;">{nombre}</td>
+          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#1f3a6e;font-size:13px;">{money(s['a26'])}</td>
+          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#7a8aa5;font-size:13px;">{money(s['a25'])}</td>
+          <td style="padding:14px 18px;text-align:right;">{chip(s['pct'], s['diff'])}</td>
+        </tr>"""
+
+    by_name = {r["branch"]: r for r in rows}
+    cuerpo = encabezado_grupo("PROPIAS")
+    for i, b in enumerate(PROPIAS):
+        cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
+    cuerpo += fila_subtotal("Subtotal Propias", propias)
+    cuerpo += encabezado_grupo("FRANQUICIAS")
+    for i, b in enumerate(FRANQUICIAS):
+        cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
+    cuerpo += fila_subtotal("Subtotal Franquicias", franquicias)
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#eeeeee;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eeeeee;">
+<tr><td align="center" style="padding:24px 12px;">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,0.12);">
+
+  <!-- HEADER -->
+  <tr><td style="background:#000000;padding:38px 32px 32px 32px;text-align:center;">
+    <img src="cid:logo" alt="Lucciano's" width="190" style="display:block;margin:0 auto;max-width:190px;height:auto;">
+    <div style="color:#bdbdbd;font-size:12px;letter-spacing:4px;margin-top:18px;">CIERRE MENSUAL DE VENTAS</div>
+    <div style="color:#ffffff;font-size:17px;font-weight:800;letter-spacing:3px;margin-top:14px;">{mes_txt} {anio}</div>
+    <div style="color:#777777;font-size:11px;margin-top:8px;">mes completo · {dias_mes} días · 6 sucursales</div>
+  </td></tr>
+
+  <!-- KPIs -->
+  <tr><td style="padding:30px 32px 6px 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="33%" style="padding-right:7px;vertical-align:top;">
+          <div style="background:#111111;border-radius:12px;padding:20px;height:126px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DE {a26_lbl}</div>
+            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a26'])}</div>
+            <div style="color:#777777;font-size:11px;margin-top:6px;">promedio {money(prom)}/día</div>
+          </div>
+        </td>
+        <td width="34%" style="padding:0 7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:20px;height:126px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DE {a25_lbl}</div>
+            <div style="color:#111111;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a25'])}</div>
+            <div style="color:#9a9a9a;font-size:10px;margin-top:6px;">{ia.strftime('%d/%m')} al {fa.strftime('%d/%m/%Y')}</div>
+          </div>
+        </td>
+        <td width="33%" style="padding-left:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:20px;height:126px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VARIACIÓN INTERANUAL</div>
+            <div style="margin-top:16px;">{chip(totals['pct'], totals['diff'], grande=True)}</div>
+          </div>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- PROGRESO -->
+  <tr><td style="padding:22px 32px 6px 32px;">
+    <div style="background:#fafafa;border-radius:12px;padding:20px 22px;">
+      <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:6px;">{mes_txt} {anio} vs {mes_txt} {anio - 1}</div>
+      <img src="cid:progreso" alt="Comparativo del mes" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
+    </div>
+  </td></tr>
+
+  <!-- COMPARATIVO -->
+  <tr><td style="padding:22px 32px 6px 32px;">
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">COMPARATIVO POR SUCURSAL · {str(anio)[2:]} vs {str(anio - 1)[2:]}</div>
+    <img src="cid:comparativo" alt="Comparativo por sucursal" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
+  </td></tr>
+
+  <!-- DETALLE -->
+  <tr><td style="padding:24px 32px 36px 32px;">
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:14px;">DETALLE POR SUCURSAL</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.06);">
+      <thead>
+        <tr style="background:#111111;">
+          <th style="padding:13px 18px;text-align:left;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">SUCURSAL</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a26_lbl}</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a25_lbl}</th>
+          <th style="padding:13px 18px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">VARIACIÓN</th>
+        </tr>
+      </thead>
+      <tbody>{cuerpo}
+        <tr style="background:#111111;">
+          <td style="padding:17px 18px;font-weight:800;color:#ffffff;font-size:14px;">TOTAL {a26_lbl}</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a26'])}</td>
+          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a25'])}</td>
+          <td style="padding:17px 18px;text-align:right;">{chip(totals['pct'], totals['diff'])}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="color:#9a9a9a;font-size:11px;margin-top:14px;line-height:1.6;">
+      Mes cerrado del {dia1.strftime('%d/%m')} al {ultimo.strftime('%d/%m/%Y')}, comparado contra
+      {ia.strftime('%d/%m')} al {fa.strftime('%d/%m/%Y')} (mismas fechas calendario del año anterior).
+      Ventas netas (Net Sales), sin impuestos. Las dos unidades de Vineland se informan consolidadas.
+    </div>
+  </td></tr>
+
+  <!-- FOOTER -->
+  <tr><td style="background:#000000;padding:20px 32px;text-align:center;">
+    <div style="color:#777777;font-size:11px;letter-spacing:1px;">LUCCIANO'S USA · Reporte automático generado el {date.today().strftime('%d/%m/%Y')}</div>
+  </td></tr>
+
+</table>
+
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
+def _gh_out(**kv):
+    p = os.environ.get("GITHUB_OUTPUT")
+    if not p:
+        return
+    with open(p, "a", encoding="utf-8") as f:
+        for k, v in kv.items():
+            f.write(f"{k}={v}\n")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Reporte de cierre mensual.")
+    ap.add_argument("--mes", help="Mes a cerrar (YYYY-MM). Default: el mes anterior a hoy.")
+    ap.add_argument("--forzar", action="store_true", help="Regenera aunque ya este cerrado.")
+    a = ap.parse_args()
+
+    if a.mes:
+        anio, mes = int(a.mes[:4]), int(a.mes[5:7])
+    else:
+        anio, mes = mes_a_cerrar()
+    dia1, ultimo = rango_mes(anio, mes)
+    clave = dia1.strftime("%Y-%m")
+
+    print(f"[INFO] Mes a cerrar: {clave} ({dia1} .. {ultimo})")
+
+    if clave in cargar_cierres() and not a.forzar:
+        print(f"[SKIP] El mes {clave} ya fue cerrado y enviado. No se reenvia.")
+        _gh_out(send="false")
+        return 0
+
+    rows, totals, propias, franquicias, mes_act, mes_ant, ia, fa = construir(dia1, ultimo)
+
+    from charts import chart_comparativo, chart_progreso
+    d = BASE / "charts"
+    d.mkdir(exist_ok=True)
+    chart_comparativo(rows, f"{MES_CORTO[mes]}/{str(anio)[2:]}",
+                      f"{MES_CORTO[mes]}/{str(anio - 1)[2:]}", d / "cierre_comparativo.png")
+    chart_progreso(totals["a26"], totals["a25"], totals["pct"], d / "cierre_progreso.png")
+
+    PREVIEW.write_text(render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa),
+                       encoding="utf-8")
+    guardar_cierre(clave, dia1, ultimo, mes_act, mes_ant, totals)
+
+    subject = f"Cierre {MESES_ES[mes].capitalize()} {anio} - Lucciano's USA"
+    _gh_out(send="true", subject=subject, mes=clave)
+
+    print(f"OK - cierre {clave}: {money(totals['a26'])} vs {money(totals['a25'])} "
+          f"({totals['pct']:+.1f}%) | snapshot guardado en cierres.json")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

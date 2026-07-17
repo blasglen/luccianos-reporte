@@ -81,6 +81,56 @@ def chart_progreso(a26, a25, pct, out_path):
     plt.close(fig)
 
 
+def chart_dias(dias, out_path, lbl_actual, lbl_ant):
+    """Venta total por dia de la semana: barras del anio en curso vs anio anterior.
+
+    'dias' es una lista de dicts: {"fecha": date, "etiqueta": "Vie 17",
+    "actual": float, "ant": float}. Este grafico NO existe en el diario porque
+    ahi no hay serie de dias; es el que le da sentido al semanal.
+    """
+    etiquetas = [d["etiqueta"] for d in dias]
+    v_act = [d["actual"] for d in dias]
+    v_ant = [d["ant"] for d in dias]
+
+    n = len(dias)
+    x = range(n)
+    w = 0.38
+
+    fig, ax = plt.subplots(figsize=(8.4, 3.4), dpi=DPI)
+    ax.bar([i - w/2 for i in x], v_act, width=w, label=lbl_actual, color=AZUL, zorder=3)
+    ax.bar([i + w/2 for i in x], v_ant, width=w, label=lbl_ant, color=CELESTE, zorder=3)
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(etiquetas, fontsize=9, color="#333333")
+    ax.yaxis.set_major_formatter(FuncFormatter(_money_k))
+    ax.tick_params(axis="y", labelsize=8, colors=GRIS_TXT)
+    ax.tick_params(axis="x", length=0)
+
+    for spine in ["top", "right", "left"]:
+        ax.spines[spine].set_visible(False)
+    ax.spines["bottom"].set_color("#dddddd")
+    ax.grid(axis="y", color="#eeeeee", zorder=0)
+
+    ax.legend(loc="upper right", frameon=False, fontsize=9)
+    fig.tight_layout(pad=0.6)
+    fig.savefig(out_path, transparent=True, bbox_inches="tight")
+    plt.close(fig)
+
+
+def build_charts_semanal(rows, totals, dias, lbl_actual, lbl_ant, out_dir="charts"):
+    """Los 3 graficos del semanal. Nombres de archivo distintos a los del diario
+    para que los dos workflows no se pisen si corren el mismo viernes."""
+    d = Path(out_dir)
+    d.mkdir(exist_ok=True)
+    p1 = d / "sem_comparativo.png"
+    p2 = d / "sem_progreso.png"
+    p3 = d / "sem_dias.png"
+    chart_comparativo(rows, lbl_actual, lbl_ant, p1)
+    chart_progreso(totals["a26"], totals["a25"], totals["pct"], p2)
+    chart_dias(dias, p3, lbl_actual, lbl_ant)
+    return str(p1), str(p2), str(p3)
+
+
 def build_charts(rows, totals, mes, a26_lbl, a25_lbl, out_dir="charts"):
     d = Path(out_dir)
     d.mkdir(exist_ok=True)

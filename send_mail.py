@@ -38,10 +38,13 @@ def _attach_inline(root, cid, path):
     root.attach(img)
 
 
-def send(subject, html, to=None):
+def send(subject, html, to=None, imagenes=None, mail_to_env="MAIL_TO"):
+    """imagenes: lista de (cid, path). Si es None usa INLINE_IMAGES (el diario).
+    mail_to_env: que Secret leer para los destinatarios. El semanal usa
+    MAIL_TO_SOCIOS, asi que el diario y el semanal nunca comparten lista."""
     user = os.environ["GMAIL_USER"]
     pwd = os.environ["GMAIL_APP_PASS"]
-    raw = to or os.environ["MAIL_TO"]
+    raw = to or os.environ[mail_to_env]
 
     destinatarios = [d.strip() for d in raw.split(",") if d.strip()]
     if not destinatarios:
@@ -63,7 +66,7 @@ def send(subject, html, to=None):
     alt.attach(MIMEText(html, "html", "utf-8"))
     root.attach(alt)
 
-    for cid, path in INLINE_IMAGES:
+    for cid, path in (imagenes if imagenes is not None else INLINE_IMAGES):
         _attach_inline(root, cid, path)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
@@ -73,7 +76,28 @@ def send(subject, html, to=None):
 
 
 if __name__ == "__main__":
+    # Uso:
+    #   python send_mail.py "Asunto" preview.html
+    #   python send_mail.py "Asunto" preview_semanal.html --to-env MAIL_TO_SOCIOS \
+    #          logo=Logo.png comparativo=charts/sem_comparativo.png
+    # Sin extras se comporta EXACTAMENTE como antes (el diario no se entera).
     subject = sys.argv[1] if len(sys.argv) > 1 else "Reporte de Ventas"
     path = sys.argv[2] if len(sys.argv) > 2 else "preview.html"
+
+    extras = sys.argv[3:]
+    to_env = "MAIL_TO"
+    imagenes = []
+    i = 0
+    while i < len(extras):
+        if extras[i] == "--to-env":
+            to_env = extras[i + 1]
+            i += 2
+            continue
+        cid, _, ruta = extras[i].partition("=")
+        if not ruta:
+            raise ValueError(f"Argumento invalido: {extras[i]!r}. Se espera cid=ruta.")
+        imagenes.append((cid, ruta))
+        i += 1
+
     with open(path, encoding="utf-8") as f:
-        send(subject, f.read())
+        send(subject, f.read(), imagenes=imagenes or None, mail_to_env=to_env)
