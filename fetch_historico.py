@@ -32,7 +32,7 @@ import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from report import parse_excel, BRANCH_ORDER
+from report import parse_excel_full, BRANCH_ORDER
 
 BASE = Path(__file__).parent
 SENDER = os.environ.get("TB_SENDER", "no-reply@touchbistro.com")
@@ -105,7 +105,7 @@ def main():
             try:
                 # La fecha sale del TITULO del Excel, no del nombre del adjunto:
                 # el titulo es el dato, el nombre del archivo es una etiqueta.
-                f_ini, f_fin, consolidado = parse_excel(tmp)
+                f_ini, f_fin, ventas, tickets = parse_excel_full(tmp)
             except Exception as e:
                 problemas.append(f"{fn}: {e}")
                 continue
@@ -113,7 +113,8 @@ def main():
                 continue
             if not (desde <= f_fin <= hasta):
                 continue
-            encontrados[f_fin] = {b: round(consolidado[b], 2) for b in BRANCH_ORDER}
+            encontrados[f_fin] = {b: {"venta": round(ventas[b], 2), "tickets": tickets[b]}
+                                  for b in BRANCH_ORDER}
 
     M.logout()
 
@@ -134,7 +135,9 @@ def main():
     print(f"\n[RESULTADO] {len(encontrados)} dia(s) rescatados entre {desde} y {hasta}.")
     if encontrados:
         for f in sorted(encontrados):
-            print(f"  OK  {f} = ${sum(encontrados[f].values()):>10,.2f}")
+            v = sum(x["venta"] for x in encontrados[f].values())
+            t = sum(x["tickets"] for x in encontrados[f].values())
+            print(f"  OK  {f} = ${v:>10,.2f} | {t:>4} tickets")
     if faltantes:
         print(f"\n[AVISO] {len(faltantes)} dia(s) del rango NO estan en la casilla:")
         for f in faltantes:

@@ -84,8 +84,9 @@ def _leer_master():
     col_local = header.index("Local")
     col_fecha = header.index("Fecha")
     col_sales = header.index("Sales")
+    col_tks = header.index("Tickets")
 
-    datos = {}  # {fecha: {cod: sales}}
+    datos = {}  # {fecha: {cod: (sales, tickets)}}
     for r in ws.iter_rows(min_row=2, values_only=True):
         if r[col_local] is None:
             continue
@@ -93,32 +94,35 @@ def _leer_master():
         if cod not in CODE_TO_TBKEY:
             continue
         f = _as_date(r[col_fecha])
-        datos.setdefault(f, {})[cod] = _to_float(r[col_sales])
+        datos.setdefault(f, {})[cod] = (_to_float(r[col_sales]),
+                                        int(_to_float(r[col_tks])))
     return datos
 
 
 def acumular_rango(ini_ant, fin_ant):
-    """Suma la columna Sales (Net Sales) por local entre ini_ant y fin_ant
-    INCLUSIVE. Las fechas que se le pasan ya son del anio anterior.
+    """Suma Sales y Tickets por local entre ini_ant y fin_ant INCLUSIVE.
+    Las fechas que se le pasan ya son del anio anterior.
 
-    Devuelve (acum_por_codigo, dias_faltantes).
+    Devuelve (acum_ventas, acum_tickets, dias_faltantes), los tres por codigo.
     """
     datos = _leer_master()
 
     acum = {cod: 0.0 for cod in ORDEN}
+    tks = {cod: 0 for cod in ORDEN}
     faltantes = []
     d = ini_ant
     while d <= fin_ant:
         if d not in datos:
             faltantes.append(d)
         else:
-            for cod, v in datos[d].items():
+            for cod, (v, t) in datos[d].items():
                 acum[cod] += v
+                tks[cod] += t
         d += timedelta(days=1)
-    return acum, faltantes
+    return acum, tks, faltantes
 
 
-def escribir_excel(ini_ant, fin_ant, acum, salida):
+def escribir_excel(ini_ant, fin_ant, acum, salida, tks=None):
     """Escribe con el MISMO formato que TouchBistro para que parse_excel() de
     report.py lo lea sin cambiarle una coma:
       fila 0 = titulo con el rango, fila 1 = header, filas 2+ = venue y Net Sales en col C.
@@ -133,7 +137,8 @@ def escribir_excel(ini_ant, fin_ant, acum, salida):
     for cod in ORDEN:
         v = round(acum[cod], 2)
         total += v
-        ws.append([CODE_TO_TBKEY[cod], v, v, 0, 0, 0])  # col C = Net Sales
+        # col C = Net Sales, col F = Bill Count -> mismo formato que TouchBistro
+        ws.append([CODE_TO_TBKEY[cod], v, v, 0, 0, (tks or {}).get(cod, 0)])
     ws.append([f"REPORT SUMMARY ({len(ORDEN)} entries)", total, total, 0, 0, 0])
     wb.save(salida)
     return total
@@ -153,7 +158,7 @@ def main():
         return 1
 
     ini_ant, fin_ant = espejo(desde), espejo(hasta)
-    acum, faltantes = acumular_rango(ini_ant, fin_ant)
+    acum, tks, faltantes = acumular_rango(ini_ant, fin_ant)
 
     if faltantes:
         print(f"[ERROR] Al master 2025 le faltan {len(faltantes)} dia(s) del rango "
@@ -163,7 +168,7 @@ def main():
         print("Cargalos en la hoja 'Por Dia y Local' antes de correr.")
         return 1
 
-    total = escribir_excel(ini_ant, fin_ant, acum, BASE / a.salida)
+    total = escribir_excel(ini_ant, fin_ant, acum, BASE / a.salida, tks)
     print(f"[OK] Comparativo {ini_ant}..{fin_ant} -> {a.salida} | Total: ${total:,.2f}")
     for cod in ORDEN:
         print(f"     {CODE_TO_TBKEY[cod]:<32} ${acum[cod]:>12,.2f}")

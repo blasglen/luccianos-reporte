@@ -21,10 +21,11 @@ import json
 import os
 import sys
 from calendar import monthrange
-from datetime import date, datetime, timezone
+from collections import Counter
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from report import BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel
+from report import BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel_full
 from generar_acum_ant import acumular_rango, escribir_excel, espejo
 
 BASE = Path(__file__).parent
@@ -42,7 +43,7 @@ def mes_a_cerrar(hoy=None):
     """
     hoy = hoy or date.today()
     primero = date(hoy.year, hoy.month, 1)
-    ultimo_ant = primero - __import__("datetime").timedelta(days=1)
+    ultimo_ant = primero - timedelta(days=1)
     return ultimo_ant.year, ultimo_ant.month
 
 
@@ -87,6 +88,81 @@ def leer_acum_cerrado(dia1, ultimo):
     return {b: round(float(acum[b]), 2) for b in BRANCH_ORDER}
 
 
+DIAS_ES_C = {0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves", 4: "viernes",
+             5: "sábado", 6: "domingo"}
+
+
+def leer_tickets_mes(dia1, ultimo):
+    """Tickets del mes por sucursal, desde el historial.
+
+    acumulado.json solo arrastra plata, no tickets, asi que esto sale del
+    historial. Si al historial le falta algun dia del mes, devuelve None y el
+    reporte sale sin ticket promedio (pero con la venta, que es lo importante).
+    No invento un promedio con datos parciales: seria peor que no mostrarlo.
+    """
+    path = BASE / "data" / f"historico_{ultimo.year}.json"
+    if not path.exists():
+        return None
+    hist = json.loads(path.read_text(encoding="utf-8"))
+    tks = {b: 0 for b in BRANCH_ORDER}
+    d = dia1
+    while d <= ultimo:
+        v = hist.get(d.isoformat())
+        if not v:
+            return None
+        for b in BRANCH_ORDER:
+            x = v.get(b)
+            if not isinstance(x, dict) or "tickets" not in x:
+                return None   # historial viejo, sin tickets
+            tks[b] += int(x["tickets"])
+        d += timedelta(days=1)
+    return tks
+
+
+def composicion(dia1, ultimo):
+    """Cuenta los dias de semana del mes y del mismo mes del anio anterior.
+
+    Por que importa: julio 2026 tiene 5 viernes y 4 martes; julio 2025 tenia 4
+    viernes y 5 martes. En una heladeria un viernes vale bastante mas que un
+    martes, asi que parte de la variacion interanual es CALENDARIO, no
+    performance. Un cierre que no lo aclara induce a error.
+
+    (En el semanal esto no hace falta: cualquier ventana de 7 dias tiene
+    exactamente un dia de cada tipo, asi que la composicion siempre coincide.)
+
+    Devuelve (texto_o_None, dias_mes, dias_mes_ant).
+    """
+    def contar(y, m):
+        c = Counter()
+        d = date(y, m, 1)
+        while d.month == m:
+            c[d.weekday()] += 1
+            d += timedelta(days=1)
+        return c
+
+    act = contar(ultimo.year, ultimo.month)
+    ant = contar(ultimo.year - 1, ultimo.month)
+    de_mas = [DIAS_ES_C[k] for k in range(7) if act[k] > ant[k]]
+    de_menos = [DIAS_ES_C[k] for k in range(7) if act[k] < ant[k]]
+    n_act = sum(act.values())
+    n_ant = sum(ant.values())
+
+    partes = []
+    if de_mas or de_menos:
+        if de_mas:
+            partes.append("un " + " y un ".join(de_mas) + " más")
+        if de_menos:
+            partes.append("un " + " y un ".join(de_menos) + " menos")
+    if n_act != n_ant:
+        partes.append(f"{n_act} días contra {n_ant}")
+    if not partes:
+        return None, n_act, n_ant
+    return (f"{MESES_ES[ultimo.month].capitalize()} {ultimo.year} tuvo "
+            + " y ".join(partes) + f" que {MESES_ES[ultimo.month].lower()} "
+            f"{ultimo.year - 1}. Parte de la variación responde a la composición "
+            f"del calendario y no a la performance de los locales."), n_act, n_ant
+
+
 # --- Snapshot / candado ---------------------------------------------------------
 def cargar_cierres():
     if not CIERRES.exists():
@@ -115,23 +191,31 @@ def guardar_cierre(clave, dia1, ultimo, mes_act, mes_ant, totals):
 # --- Calculo --------------------------------------------------------------------
 def construir(dia1, ultimo):
     mes_act = leer_acum_cerrado(dia1, ultimo)
+    tks_act = leer_tickets_mes(dia1, ultimo)
 
     ia, fa = espejo(dia1), espejo(ultimo)
-    acum_ant, faltan = acumular_rango(ia, fa)
+    acum_ant, tks_ant, faltan = acumular_rango(ia, fa)
     if faltan:
         print(f"[ERROR] Al master del anio anterior le faltan dias del rango {ia}..{fa}:")
         for f in faltan:
             print(f"  - {f.isoformat()}")
         raise SystemExit(1)
-    escribir_excel(ia, fa, acum_ant, SALIDA_ANT)
-    _, _, mes_ant = parse_excel(SALIDA_ANT)
+    escribir_excel(ia, fa, acum_ant, SALIDA_ANT, tks_ant)
+    _, _, mes_ant, mes_ant_tks = parse_excel_full(SALIDA_ANT)
 
     rows = []
     for b in BRANCH_ORDER:
         a26, a25 = mes_act[b], round(mes_ant[b], 2)
         diff = a26 - a25
-        rows.append({"branch": b, "a26": a26, "a25": a25, "diff": diff,
-                     "pct": (diff / a25 * 100) if a25 else 0.0})
+        r = {"branch": b, "a26": a26, "a25": a25, "diff": diff,
+             "pct": (diff / a25 * 100) if a25 else 0.0}
+        if tks_act:
+            t26, t25 = tks_act[b], mes_ant_tks[b]
+            r["tks26"], r["tks25"] = t26, t25
+            r["tp26"] = (a26 / t26) if t26 else 0.0
+            r["tp25"] = (a25 / t25) if t25 else 0.0
+            r["tp_pct"] = ((r["tp26"] - r["tp25"]) / r["tp25"] * 100) if r["tp25"] else 0.0
+        rows.append(r)
 
     def agregar(items):
         t = {"a26": round(sum(r["a26"] for r in items), 2),
@@ -141,13 +225,24 @@ def construir(dia1, ultimo):
         return t
 
     totals = agregar(rows)
+    if tks_act:
+        totals["tks26"] = sum(r["tks26"] for r in rows)
+        totals["tks25"] = sum(r["tks25"] for r in rows)
+        # Ticket promedio = venta total / tickets totales. NUNCA el promedio de
+        # los promedios de cada sucursal: eso le da el mismo peso a Aventura que
+        # a Sawgrass y el numero sale mal.
+        totals["tp26"] = totals["a26"] / totals["tks26"] if totals["tks26"] else 0.0
+        totals["tp25"] = totals["a25"] / totals["tks25"] if totals["tks25"] else 0.0
+        totals["tks_pct"] = ((totals["tks26"] - totals["tks25"]) / totals["tks25"] * 100) if totals["tks25"] else 0.0
+        totals["tp_pct"] = ((totals["tp26"] - totals["tp25"]) / totals["tp25"] * 100) if totals["tp25"] else 0.0
     # Participacion de cada sucursal sobre el total del mes: en el cierre si tiene
     # sentido (en el diario no, porque un dia flojo de una sucursal te distorsiona).
     for r in rows:
         r["share"] = (r["a26"] / totals["a26"] * 100) if totals["a26"] else 0.0
 
-    return rows, totals, agregar([r for r in rows if r["branch"] in PROPIAS]), \
-        agregar([r for r in rows if r["branch"] in FRANQUICIAS]), mes_act, mes_ant, ia, fa
+    return (rows, totals, agregar([r for r in rows if r["branch"] in PROPIAS]),
+            agregar([r for r in rows if r["branch"] in FRANQUICIAS]),
+            mes_act, mes_ant, ia, fa, bool(tks_act))
 
 
 # --- HTML -----------------------------------------------------------------------
@@ -156,15 +251,17 @@ def chip(pct, diff, grande=False):
     col = "#1a7d2e" if up else "#c62828"
     bg = "#eaf5ec" if up else "#fbecec"
     s = "+" if up else ""
-    dd = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
     fs = "17px" if grande else "12px"
+    dd = ""
+    if diff:
+        txt = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
+        dd = f'<div style="color:{col};font-size:11px;margin-top:4px;">{txt}</div>'
     return (f'<span style="display:inline-block;background:{bg};color:{col};'
             f'font-weight:700;font-size:{fs};padding:4px 11px;border-radius:20px;'
-            f'white-space:nowrap;">{s}{pct:.1f}%</span>'
-            f'<div style="color:{col};font-size:11px;margin-top:4px;">{dd}</div>')
+            f'white-space:nowrap;">{s}{pct:.1f}%</span>{dd}')
 
 
-def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa):
+def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tks):
     anio = ultimo.year
     mes_txt = MESES_ES[ultimo.month]
     a26_lbl = f"{MES_CORTO[ultimo.month].upper()}/{str(anio)[2:]}"
@@ -172,11 +269,50 @@ def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa):
     dias_mes = ultimo.day
     prom = totals["a26"] / dias_mes
 
+    texto_cal, n_act, n_ant = composicion(dia1, ultimo)
+    nota_cal = ""
+    if texto_cal:
+        nota_cal = (f'<div style="background:#fff8e6;border-left:3px solid #e0a800;'
+                    f'border-radius:6px;padding:12px 14px;margin-top:16px;color:#6b5200;'
+                    f'font-size:12px;line-height:1.6;">'
+                    f'<b>Nota sobre el calendario.</b> {texto_cal}</div>')
+
+    if not con_tks:
+        banda_tks = ('<div style="background:#fbecec;border-radius:12px;padding:14px 18px;'
+                     'color:#c62828;font-size:12px;">Sin datos de tickets para este mes: '
+                     'el historial diario no cubre el período completo. La venta no está afectada.</div>')
+    else:
+        banda_tks = f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="50%" style="padding-right:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:18px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">TICKETS DEL MES</div>
+            <table role="presentation" width="100%"><tr>
+              <td style="color:#111111;font-size:20px;font-weight:800;padding-top:6px;">{totals['tks26']:,}</td>
+              <td style="text-align:right;">{chip(totals['tks_pct'], 0)}</td>
+            </tr></table>
+            <div style="color:#9a9a9a;font-size:11px;margin-top:2px;">{totals['tks25']:,} en {anio - 1}</div>
+          </div>
+        </td>
+        <td width="50%" style="padding-left:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:18px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">TICKET PROMEDIO</div>
+            <table role="presentation" width="100%"><tr>
+              <td style="color:#111111;font-size:20px;font-weight:800;padding-top:6px;">{money(totals['tp26'])}</td>
+              <td style="text-align:right;">{chip(totals['tp_pct'], 0)}</td>
+            </tr></table>
+            <div style="color:#9a9a9a;font-size:11px;margin-top:2px;">{money(totals['tp25'])} en {anio - 1}</div>
+          </div>
+        </td>
+      </tr>
+    </table>"""
+
     def fila(r, zebra):
         return f"""
         <tr style="background:{zebra};">
           <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}
-            <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{r['share']:.1f}% del total</div>
+            <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{r['share']:.1f}% del total{'' if not con_tks else f" · ticket prom. {money(r['tp26'])}"}</div>
           </td>
           <td style="padding:14px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
           <td style="padding:14px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
@@ -253,12 +389,9 @@ def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa):
     </table>
   </td></tr>
 
-  <!-- PROGRESO -->
-  <tr><td style="padding:22px 32px 6px 32px;">
-    <div style="background:#fafafa;border-radius:12px;padding:20px 22px;">
-      <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:6px;">{mes_txt} {anio} vs {mes_txt} {anio - 1}</div>
-      <img src="cid:progreso" alt="Comparativo del mes" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
-    </div>
+  <!-- TICKETS -->
+  <tr><td style="padding:18px 32px 6px 32px;">
+    {banda_tks}
   </td></tr>
 
   <!-- COMPARATIVO -->
@@ -288,6 +421,7 @@ def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa):
         </tr>
       </tbody>
     </table>
+    {nota_cal}
     <div style="color:#9a9a9a;font-size:11px;margin-top:14px;line-height:1.6;">
       Mes cerrado del {dia1.strftime('%d/%m')} al {ultimo.strftime('%d/%m/%Y')}, comparado contra
       {ia.strftime('%d/%m')} al {fa.strftime('%d/%m/%Y')} (mismas fechas calendario del año anterior).
@@ -337,16 +471,17 @@ def main():
         _gh_out(send="false")
         return 0
 
-    rows, totals, propias, franquicias, mes_act, mes_ant, ia, fa = construir(dia1, ultimo)
+    rows, totals, propias, franquicias, mes_act, mes_ant, ia, fa, con_tks = construir(dia1, ultimo)
 
-    from charts import chart_comparativo, chart_progreso
+    # Saque el grafico de "progreso": en un mes cerrado son las mismas dos barras
+    # que ya estan en las KPI y en el comparativo. Un cierre tiene que ser concreto.
+    from charts import chart_comparativo
     d = BASE / "charts"
     d.mkdir(exist_ok=True)
     chart_comparativo(rows, f"{MES_CORTO[mes]}/{str(anio)[2:]}",
                       f"{MES_CORTO[mes]}/{str(anio - 1)[2:]}", d / "cierre_comparativo.png")
-    chart_progreso(totals["a26"], totals["a25"], totals["pct"], d / "cierre_progreso.png")
 
-    PREVIEW.write_text(render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa),
+    PREVIEW.write_text(render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tks),
                        encoding="utf-8")
     guardar_cierre(clave, dia1, ultimo, mes_act, mes_ant, totals)
 

@@ -26,7 +26,7 @@ import json
 import sys
 from pathlib import Path
 
-from report import parse_excel, BRANCH_ORDER
+from report import parse_excel_full, BRANCH_ORDER
 
 BASE = Path(__file__).parent
 VENTAS = BASE / "Ventas_ayer.xlsx"
@@ -57,7 +57,7 @@ def main():
         print(f"[ERROR] No existe {VENTAS.name}. Corrio fetch_touchbistro.py?")
         return 1
 
-    fecha_ini, fecha_fin, consolidado = parse_excel(VENTAS)
+    fecha_ini, fecha_fin, ventas, tickets = parse_excel_full(VENTAS)
 
     # Guarda de seguridad: este script SOLO registra dias sueltos. Si por lo que
     # sea entra el reporte mensual (rango largo), no quiero que se anote como si
@@ -72,12 +72,18 @@ def main():
     clave = fecha_fin.isoformat()
     ya_estaba = clave in hist
 
-    hist[clave] = {b: round(consolidado[b], 2) for b in BRANCH_ORDER}
+    # Formato: {"Sucursal": {"venta": 1234.56, "tickets": 87}}
+    # Los tickets salen de Bill Count. Con venta + tickets se puede calcular el
+    # ticket promedio, que es lo que contesta si vendimos mas porque vino mas
+    # gente o porque cada uno gasta mas.
+    hist[clave] = {b: {"venta": round(ventas[b], 2), "tickets": tickets[b]}
+                   for b in BRANCH_ORDER}
     guardar(path, hist)
 
-    total = sum(hist[clave].values())
+    total = sum(v["venta"] for v in hist[clave].values())
+    tks = sum(v["tickets"] for v in hist[clave].values())
     estado = "actualizado (ya existia)" if ya_estaba else "agregado"
-    print(f"[OK] Historial {estado}: {clave} = ${total:,.2f} | "
+    print(f"[OK] Historial {estado}: {clave} = ${total:,.2f} | {tks} tickets | "
           f"{len(hist)} dias registrados en {path.name}")
     return 0
 

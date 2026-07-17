@@ -1,10 +1,10 @@
 """
-Lucciano's - Reporte de Ventas SEMANAL (viernes a jueves)
+Lucciano's - Reporte de Ventas SEMANAL (lunes a domingo)
 --------------------------------------------------------
-Se manda los VIERNES y cubre del viernes anterior al jueves (ayer).
+Se manda los LUNES y cubre la semana calendario anterior: lunes a domingo (ayer).
 
 Flujo:
-  1. Calcula el rango vie..jue (por defecto, la semana que termino ayer).
+  1. Calcula el rango lun..dom (por defecto, la semana que termino ayer).
   2. Lee data/historico_<anio>.json -> los 7 dias del rango, por sucursal.
      Si falta alguno, CORTA EN ROJO. No se manda una semana incompleta.
   3. Arma el comparativo del anio anterior con generar_acum_ant (fechas calendario)
@@ -26,7 +26,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from report import (
-    BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel,
+    BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel_full,
 )
 from generar_acum_ant import acumular_rango, escribir_excel, espejo
 
@@ -38,26 +38,43 @@ ESTADO = BASE / "data" / "semanal.json"
 PREVIEW = BASE / "preview_semanal.html"
 
 DIAS_CORTOS = {0: "Lun", 1: "Mar", 2: "Mié", 3: "Jue", 4: "Vie", 5: "Sáb", 6: "Dom"}
-VIERNES = 4  # date.weekday(): lunes=0 ... viernes=4
+LUNES = 0  # date.weekday(): lunes=0 ... domingo=6
 
 
 # --- 1. Rango de la semana -------------------------------------------------------
 def rango_semana(hoy=None):
-    """Devuelve (viernes, jueves) de la semana a reportar.
+    """Devuelve (lunes, domingo) de la semana calendario a reportar.
 
-    Regla: el reporte sale el viernes y cubre hasta AYER (jueves). O sea que
-    'hasta' = hoy - 1 y 'desde' = hasta - 6.
+    Regla: el reporte sale el lunes y cubre hasta AYER (domingo). O sea que
+    'hasta' = hoy - 1 y 'desde' = hasta - 6 = el lunes anterior.
 
-    Si por lo que sea corre otro dia (prueba manual, respaldo que se atraso),
-    retrocedo al ultimo jueves cerrado en vez de reventar. Asi el reporte siempre
-    cubre una semana vie..jue completa, corra el dia que corra.
+    Si por lo que sea corre otro dia (prueba manual, o se atraso), retrocede al
+    ultimo domingo cerrado en vez de reventar. Asi el reporte siempre cubre una
+    semana lun..dom completa, corra el dia que corra.
     """
     hoy = hoy or date.today()
-    # Cuantos dias hay que retroceder desde 'hoy' hasta el viernes de arranque.
-    # Viernes -> 7 (el viernes anterior). Sabado -> 8. Jueves -> 13.
-    delta = (hoy.weekday() - VIERNES) % 7 + 7
+    # Dias a retroceder desde 'hoy' hasta el lunes de arranque.
+    # Lunes -> 7 (el lunes anterior). Martes -> 8. Domingo -> 13.
+    delta = (hoy.weekday() - LUNES) % 7 + 7
     desde = hoy - timedelta(days=delta)
     return desde, desde + timedelta(days=6)
+
+
+def _venta(dia, b):
+    """El historial viejo guardaba {suc: float}; el nuevo {suc: {venta, tickets}}.
+    Leo los dos para que un rescate a medias no rompa el reporte."""
+    v = dia.get(b, 0.0)
+    return float(v["venta"]) if isinstance(v, dict) else float(v)
+
+
+def _tickets(dia, b):
+    v = dia.get(b, 0.0)
+    return int(v.get("tickets", 0)) if isinstance(v, dict) else 0
+
+
+def _sin_tickets(dias):
+    """True si algun dia del rango no tiene tickets (historial viejo)."""
+    return any(not isinstance(d.get(b), dict) for _, d in dias for b in BRANCH_ORDER)
 
 
 # --- 2. Historial ---------------------------------------------------------------
@@ -128,7 +145,7 @@ def leer_acum_mes(hasta):
         raise SystemExit(
             f"[ERROR] El acumulado del diario esta cerrado al {st.get('last_date')} "
             f"y el semanal cierra el {hasta.isoformat()}.\n"
-            f"        Causa tipica: el reporte diario del jueves no corrio o fallo "
+            f"        Causa tipica: el reporte diario del domingo no corrio o fallo "
             f"(mail de TouchBistro demorado). Revisar Actions y volver a correr el "
             f"semanal despues.\n"
             f"        NO se manda: el acumulado del mes quedaria incompleto."
@@ -166,7 +183,7 @@ def conciliar(hasta, acum_mes):
                     f"{hasta.strftime('%m/%Y')} (falta al menos {k}). "
                     f"Se prende sola cuando haya un mes completo.")
         for b in BRANCH_ORDER:
-            suma[b] += hist[k].get(b, 0.0)
+            suma[b] += _venta(hist[k], b)
         d += timedelta(days=1)
 
     difs = {b: round(suma[b] - acum_mes[b], 2) for b in BRANCH_ORDER
@@ -187,11 +204,13 @@ def conciliar(hasta, acum_mes):
 def construir(desde, hasta):
     dias = leer_semana(desde, hasta)
 
-    # (a) Semana actual, por sucursal
+    # (a) Semana actual, por sucursal: venta y tickets
     sem_act = {b: 0.0 for b in BRANCH_ORDER}
+    sem_tks = {b: 0 for b in BRANCH_ORDER}
     for _, d in dias:
         for b in BRANCH_ORDER:
-            sem_act[b] += d.get(b, 0.0)
+            sem_act[b] += _venta(d, b)
+            sem_tks[b] += _tickets(d, b)
 
     # (b) Acumulado del mes 2026: lo trae el diario, ya validado al jueves
     mes_act = leer_acum_mes(hasta)
@@ -205,41 +224,57 @@ def construir(desde, hasta):
     # respaldo por si alguien pregunta de donde salio el numero.
     def comparativo(ini, fin, salida):
         ia, fa = espejo(ini), espejo(fin)
-        acum, faltan = acumular_rango(ia, fa)
+        acum, tks, faltan = acumular_rango(ia, fa)
         if faltan:
             print(f"[ERROR] Al master del anio anterior le faltan dias del rango "
                   f"{ia}..{fa}:")
             for f in faltan:
                 print(f"  - {f.isoformat()}")
             raise SystemExit(1)
-        escribir_excel(ia, fa, acum, salida)
-        _, _, consolidado = parse_excel(salida)
-        return consolidado
+        escribir_excel(ia, fa, acum, salida, tks)
+        _, _, ventas, tickets = parse_excel_full(salida)
+        return ventas, tickets
 
-    sem_ant = comparativo(desde, hasta, SALIDA_ACUM_ANT)
+    sem_ant, sem_ant_tks = comparativo(desde, hasta, SALIDA_ACUM_ANT)
     # El acumulado del mes anterior arranca SIEMPRE el 1ro del mes del jueves.
     # Si la semana cruza fin de mes (ej. vie 31/07 a jue 06/08), el acumulado es
     # el de agosto (1 al 6), igual que hace el diario al reiniciar el 1ro.
     dia1 = date(hasta.year, hasta.month, 1)
-    mes_ant = comparativo(dia1, hasta, SALIDA_ACUM_MES_ANT)
+    mes_ant, _ = comparativo(dia1, hasta, SALIDA_ACUM_MES_ANT)
 
     rows = []
     for b in BRANCH_ORDER:
         s26, s25 = round(sem_act[b], 2), round(sem_ant[b], 2)
         a26, a25 = mes_act[b], round(mes_ant[b], 2)
         diff = a26 - a25
+        t26, t25 = sem_tks[b], sem_ant_tks[b]
+        tp26 = (s26 / t26) if t26 else 0.0
+        tp25 = (s25 / t25) if t25 else 0.0
         rows.append({
             "branch": b,
             "sem26": s26, "sem25": s25,
             "sem_diff": s26 - s25, "sem_pct": ((s26 - s25) / s25 * 100) if s25 else 0.0,
             "a26": a26, "a25": a25,
             "diff": diff, "pct": (diff / a25 * 100) if a25 else 0.0,
+            "tks26": t26, "tks25": t25,
+            "tks_pct": ((t26 - t25) / t25 * 100) if t25 else 0.0,
+            "tp26": tp26, "tp25": tp25,
+            "tp_pct": ((tp26 - tp25) / tp25 * 100) if tp25 else 0.0,
         })
 
     def agregar(items):
         t = {}
         for k in ("sem26", "sem25", "a26", "a25"):
             t[k] = round(sum(r[k] for r in items), 2)
+        for k in ("tks26", "tks25"):
+            t[k] = sum(r[k] for r in items)
+        # OJO: el ticket promedio del grupo NO es el promedio de los promedios.
+        # Hay que dividir la venta total por los tickets totales, sino una
+        # sucursal chica pesa igual que una grande y el numero sale mal.
+        t["tp26"] = (t["sem26"] / t["tks26"]) if t["tks26"] else 0.0
+        t["tp25"] = (t["sem25"] / t["tks25"]) if t["tks25"] else 0.0
+        t["tks_pct"] = ((t["tks26"] - t["tks25"]) / t["tks25"] * 100) if t["tks25"] else 0.0
+        t["tp_pct"] = ((t["tp26"] - t["tp25"]) / t["tp25"] * 100) if t["tp25"] else 0.0
         t["sem_diff"] = t["sem26"] - t["sem25"]
         t["sem_pct"] = (t["sem_diff"] / t["sem25"] * 100) if t["sem25"] else 0.0
         t["diff"] = t["a26"] - t["a25"]
@@ -252,22 +287,21 @@ def construir(desde, hasta):
 
     # Serie por dia: el actual sale del historial; el anio anterior, del master
     # dia por dia (por eso acumulo rangos de un solo dia).
+    # Serie por dia: SOLO 2026. No comparo contra 2025 dia a dia porque el espejo
+    # calendario alinea "Lun 13" contra un domingo. Ver el docstring de chart_dias.
     serie = []
     for f, d in dias:
-        f_ant = espejo(f)
-        ant_cod, _ = acumular_rango(f_ant, f_ant)
         serie.append({
             "fecha": f,
             "etiqueta": f"{DIAS_CORTOS[f.weekday()]} {f.day}",
-            "actual": round(sum(d.values()), 2),
-            "ant": round(sum(ant_cod.values()), 2),
+            "actual": round(sum(_venta(d, b) for b in BRANCH_ORDER), 2),
         })
 
     # El mejor y el peor dia, para el texto del mail
     mejor = max(serie, key=lambda s: s["actual"])
     peor = min(serie, key=lambda s: s["actual"])
 
-    return rows, totals, propias, franquicias, serie, mejor, peor, dia1
+    return rows, totals, propias, franquicias, serie, mejor, peor, dia1, _sin_tickets(dias)
 
 
 # --- Candado de envio -----------------------------------------------------------
@@ -289,19 +323,23 @@ def marcar_enviada(desde, hasta, totals):
 
 # --- 5. HTML --------------------------------------------------------------------
 def chip(pct, diff, grande=False):
+    """diff=0 -> muestra solo el %. Se usa asi en tickets, donde poner "(+134)"
+    al lado de un porcentaje de unidades confunde con plata."""
     up = pct >= 0
     col = "#1a7d2e" if up else "#c62828"
     bg = "#eaf5ec" if up else "#fbecec"
     s = "+" if up else ""
-    dd = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
     fs = "15px" if grande else "12px"
+    dd = ""
+    if diff:
+        txt = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
+        dd = f'<div style="color:{col};font-size:11px;margin-top:3px;">{txt}</div>'
     return (f'<span style="display:inline-block;background:{bg};color:{col};'
             f'font-weight:700;font-size:{fs};padding:3px 9px;border-radius:20px;'
-            f'white-space:nowrap;">{s}{pct:.1f}%</span>'
-            f'<div style="color:{col};font-size:11px;margin-top:3px;">{dd}</div>')
+            f'white-space:nowrap;">{s}{pct:.1f}%</span>{dd}')
 
 
-def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1):
+def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks):
     anio = hasta.year
     mes = MES_CORTO[hasta.month].upper()
     a26_lbl = f"ACUM. {mes}/{str(anio)[2:]}"
@@ -317,7 +355,9 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
     def fila(r, zebra):
         return f"""
         <tr style="background:{zebra};">
-          <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}</td>
+          <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}
+            <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{'' if sin_tks else f"ticket prom. {money(r['tp26'])}"}</div>
+          </td>
           <td style="padding:14px 12px;text-align:right;color:#111111;font-size:14px;">{money(r['sem26'])}</td>
           <td style="padding:14px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
           <td style="padding:14px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
@@ -351,6 +391,38 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
     cuerpo += fila_subtotal("Subtotal Franquicias", franquicias)
 
     prom = totals["sem26"] / len(serie)
+
+    if sin_tks:
+        banda_tks = ('<div style="background:#fbecec;border-radius:12px;padding:14px 18px;'
+                     'color:#c62828;font-size:12px;">Sin datos de tickets para esta semana '
+                     '(el historial de esos días se cargó antes de que se registraran). '
+                     'La venta no está afectada.</div>')
+    else:
+        banda_tks = f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="50%" style="padding-right:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:18px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">TICKETS DE LA SEMANA</div>
+            <table role="presentation" width="100%"><tr>
+              <td style="color:#111111;font-size:20px;font-weight:800;padding-top:6px;">{totals['tks26']:,}</td>
+              <td style="text-align:right;">{chip(totals['tks_pct'], 0)}</td>
+            </tr></table>
+            <div style="color:#9a9a9a;font-size:11px;margin-top:2px;">{totals['tks25']:,} en {anio - 1}</div>
+          </div>
+        </td>
+        <td width="50%" style="padding-left:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:18px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">TICKET PROMEDIO</div>
+            <table role="presentation" width="100%"><tr>
+              <td style="color:#111111;font-size:20px;font-weight:800;padding-top:6px;">{money(totals['tp26'])}</td>
+              <td style="text-align:right;">{chip(totals['tp_pct'], 0)}</td>
+            </tr></table>
+            <div style="color:#9a9a9a;font-size:11px;margin-top:2px;">{money(totals['tp25'])} en {anio - 1}</div>
+          </div>
+        </td>
+      </tr>
+    </table>"""
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -401,6 +473,11 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
     </div>
   </td></tr>
 
+  <!-- TICKETS -->
+  <tr><td style="padding:18px 32px 6px 32px;">
+    {banda_tks}
+  </td></tr>
+
   <!-- PROGRESO -->
   <tr><td style="padding:22px 32px 6px 32px;">
     <div style="background:#fafafa;border-radius:12px;padding:20px 22px;">
@@ -411,7 +488,7 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
 
   <!-- VENTA POR DIA -->
   <tr><td style="padding:22px 32px 6px 32px;">
-    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">VENTA POR DÍA DE LA SEMANA</div>
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">VENTA POR DÍA · {anio}</div>
     <img src="cid:dias" alt="Venta por día" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
     <div style="color:#777777;font-size:12px;margin-top:10px;line-height:1.6;">
       Mejor día: <b style="color:#111111;">{mejor['etiqueta']}</b> con {money(mejor['actual'])} ·
@@ -481,7 +558,7 @@ def _gh_out(**kv):
 
 def main():
     ap = argparse.ArgumentParser(description="Reporte semanal viernes a jueves.")
-    ap.add_argument("--hasta", help="Jueves de cierre (YYYY-MM-DD). Default: ayer.")
+    ap.add_argument("--hasta", help="Domingo de cierre (YYYY-MM-DD). Default: ayer.")
     ap.add_argument("--forzar", action="store_true",
                     help="Ignora el candado y regenera aunque ya se haya enviado.")
     a = ap.parse_args()
@@ -500,7 +577,11 @@ def main():
         _gh_out(send="false")
         return 0
 
-    rows, totals, propias, franquicias, serie, mejor, peor, dia1 = construir(desde, hasta)
+    rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks = construir(desde, hasta)
+    if sin_tks:
+        print("[AVISO] Hay dias sin tickets en el historial (formato viejo). "
+              "El reporte sale con la venta pero sin ticket promedio. Para "
+              "arreglarlo: correr el rescate de historial con pisar=true.")
 
     # El comparativo por sucursal muestra la SEMANA (26 vs 25); el de progreso, el
     # AVANCE DEL MES (que es lo que mira el diario). Por eso al comparativo le paso
@@ -512,7 +593,7 @@ def main():
                          out_dir=str(BASE / "charts"))
 
     PREVIEW.write_text(
-        render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1),
+        render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks),
         encoding="utf-8")
     marcar_enviada(desde, hasta, totals)
 

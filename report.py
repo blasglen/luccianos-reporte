@@ -54,13 +54,18 @@ def _to_float(v):
     return float(str(v).replace(",", "").replace("$", "").strip() or 0)
 
 
-def parse_excel(path):
-    """Devuelve (fecha_inicio, fecha_fin, dict_consolidado_por_sucursal) usando Net Sales (columna C)."""
+def parse_excel_full(path):
+    """Devuelve (fecha_ini, fecha_fin, ventas_por_sucursal, tickets_por_sucursal).
+
+    Net Sales = columna C. Bill Count = columna F (los tickets del dia).
+    parse_excel() quedo como wrapper de esta para no cambiarle la firma a nadie:
+    el diario la sigue llamando igual y ni se entera de que ahora tambien hay
+    tickets. Un solo parser, un solo VENUE_MAP, un solo lugar donde tocar.
+    """
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
 
-    # Fecha del titulo: 'multi-venue - Sales Summary - 2026-06-28/2026-06-28'
     title = str(rows[0][0] or "")
     m = re.search(r"(\d{4}-\d{2}-\d{2})\s*/\s*(\d{4}-\d{2}-\d{2})", title)
     if not m:
@@ -68,15 +73,23 @@ def parse_excel(path):
     fecha_ini = datetime.strptime(m.group(1), "%Y-%m-%d").date()
     fecha_fin = datetime.strptime(m.group(2), "%Y-%m-%d").date()
 
-    consolidado = {b: 0.0 for b in BRANCH_ORDER}
+    ventas = {b: 0.0 for b in BRANCH_ORDER}
+    tickets = {b: 0 for b in BRANCH_ORDER}
     for r in rows[2:]:
         name = str(r[0] or "").strip()
         if not name or name.upper().startswith("REPORT"):
             continue
         if name not in VENUE_MAP:
             raise ValueError(f"Venue desconocido en {path}: {name!r}. Agregalo a VENUE_MAP.")
-        consolidado[VENUE_MAP[name]] += _to_float(r[2])  # col C = Net Sales
-    return fecha_ini, fecha_fin, consolidado
+        ventas[VENUE_MAP[name]] += _to_float(r[2])          # col C = Net Sales
+        tickets[VENUE_MAP[name]] += int(_to_float(r[5]))    # col F = Bill Count
+    return fecha_ini, fecha_fin, ventas, tickets
+
+
+def parse_excel(path):
+    """Devuelve (fecha_inicio, fecha_fin, dict_consolidado_por_sucursal) usando Net Sales (columna C)."""
+    ini, fin, ventas, _ = parse_excel_full(path)
+    return ini, fin, ventas
 
 
 def load_accumulator(path):

@@ -81,37 +81,52 @@ def chart_progreso(a26, a25, pct, out_path):
     plt.close(fig)
 
 
-def chart_dias(dias, out_path, lbl_actual, lbl_ant):
-    """Venta total por dia de la semana: barras del anio en curso vs anio anterior.
+def chart_dias(dias, out_path):
+    """Venta por dia de la semana, SOLO el anio en curso, con linea de promedio.
 
-    'dias' es una lista de dicts: {"fecha": date, "etiqueta": "Vie 17",
-    "actual": float, "ant": float}. Este grafico NO existe en el diario porque
-    ahi no hay serie de dias; es el que le da sentido al semanal.
+    Por que no compara contra 2025: como el espejo es por fecha calendario, el
+    "Lun 13" de 2026 caeria al lado del 13/07/2025 que fue DOMINGO. En una
+    heladeria un domingo puede duplicar a un lunes, asi que esa barra no compara
+    performance: compara dias de semana distintos. Preferimos no mostrar una
+    comparacion antes que mostrar una que enganie.
+
+    El total de la semana SI se compara contra 2025 (en las KPI y en el
+    comparativo por sucursal) porque cualquier ventana de 7 dias tiene
+    exactamente un lunes, un martes... y un domingo. Ahi la composicion es
+    identica y la comparacion es limpia.
     """
     etiquetas = [d["etiqueta"] for d in dias]
-    v_act = [d["actual"] for d in dias]
-    v_ant = [d["ant"] for d in dias]
+    v = [d["actual"] for d in dias]
+    prom = sum(v) / len(v) if v else 0
 
-    n = len(dias)
-    x = range(n)
-    w = 0.38
+    fig, ax = plt.subplots(figsize=(8.4, 3.2), dpi=DPI)
+    # El mejor y el peor dia van resaltados; el resto en gris azulado.
+    mx, mn = max(v), min(v)
+    colores = [AZUL if x == mx else ("#c9d3e3" if x == mn else CELESTE) for x in v]
+    ax.bar(range(len(v)), v, width=0.62, color=colores, zorder=3)
 
-    fig, ax = plt.subplots(figsize=(8.4, 3.4), dpi=DPI)
-    ax.bar([i - w/2 for i in x], v_act, width=w, label=lbl_actual, color=AZUL, zorder=3)
-    ax.bar([i + w/2 for i in x], v_ant, width=w, label=lbl_ant, color=CELESTE, zorder=3)
+    ax.axhline(prom, color="#9a9a9a", linestyle="--", linewidth=1.1, zorder=4)
+    ax.annotate(f"promedio {_money_k(prom, None)}", xy=(len(v) - 0.45, prom),
+                xytext=(0, 5), textcoords="offset points", ha="right",
+                fontsize=8.5, color="#777777")
 
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(etiquetas, fontsize=9, color="#333333")
+    for i, x in enumerate(v):
+        ax.annotate(_money_k(x, None), xy=(i, x), xytext=(0, 4),
+                    textcoords="offset points", ha="center", fontsize=8.5,
+                    color="#333333", fontweight="bold")
+
+    ax.set_xticks(range(len(v)))
+    ax.set_xticklabels(etiquetas, fontsize=9.5, color="#333333")
     ax.yaxis.set_major_formatter(FuncFormatter(_money_k))
     ax.tick_params(axis="y", labelsize=8, colors=GRIS_TXT)
     ax.tick_params(axis="x", length=0)
+    ax.set_ylim(0, max(v) * 1.16 if v else 1)
 
     for spine in ["top", "right", "left"]:
         ax.spines[spine].set_visible(False)
     ax.spines["bottom"].set_color("#dddddd")
     ax.grid(axis="y", color="#eeeeee", zorder=0)
 
-    ax.legend(loc="upper right", frameon=False, fontsize=9)
     fig.tight_layout(pad=0.6)
     fig.savefig(out_path, transparent=True, bbox_inches="tight")
     plt.close(fig)
@@ -127,7 +142,7 @@ def build_charts_semanal(rows, totals, dias, lbl_actual, lbl_ant, out_dir="chart
     p3 = d / "sem_dias.png"
     chart_comparativo(rows, lbl_actual, lbl_ant, p1)
     chart_progreso(totals["a26"], totals["a25"], totals["pct"], p2)
-    chart_dias(dias, p3, lbl_actual, lbl_ant)
+    chart_dias(dias, p3)
     return str(p1), str(p2), str(p3)
 
 
