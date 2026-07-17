@@ -61,8 +61,7 @@ jobs:
           python send_mail.py "${{ steps.gen.outputs.subject }}" preview_cierre.html \
             --to-env MAIL_TO_SOCIOS \
             logo=Logo.png \
-            comparativo=charts/cierre_comparativo.png \
-            progreso=charts/cierre_progreso.png
+            comparativo=charts/cierre_comparativo.png
 
       # data/cierres.json es el snapshot Y el candado. Si esto no se commitea, el
       # mes se pierde cuando el dia 2 reinicie el acumulado. Por eso va si o si
