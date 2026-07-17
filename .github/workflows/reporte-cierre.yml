@@ -1,0 +1,82 @@
+name: Reporte de Cierre Mensual
+
+# DISPARADORES:
+#   1. repository_dispatch -> cron-job.org, DIA 1 de cada mes 8:00 AR.
+#   2. workflow_dispatch   -> boton manual.
+#
+# VENTANA CRITICA: el dia 1 a las 7:00 el diario procesa el ultimo dia del mes y
+# deja data/acumulado.json con el mes CERRADO. El dia 2 a las 7:00 lo reinicia.
+# Este workflow corre adentro de esa ventana de 24hs y guarda el snapshot en
+# data/cierres.json para que el mes no se pierda nunca mas.
+on:
+  repository_dispatch:
+    types: [reporte-cierre]
+  workflow_dispatch:
+    inputs:
+      mes:
+        description: "Mes a cerrar (YYYY-MM). Vacio = el mes anterior a hoy."
+        required: false
+      forzar:
+        description: "Reenviar aunque el mes ya este cerrado (true/false)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reportes-luccianos
+  cancel-in-progress: false
+
+jobs:
+  enviar-cierre:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install openpyxl matplotlib
+
+      - name: Generar cierre mensual
+        id: gen
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.mes }}" ]; then ARGS="$ARGS --mes ${{ github.event.inputs.mes }}"; fi
+          if [ "${{ github.event.inputs.forzar }}" = "true" ]; then ARGS="$ARGS --forzar"; fi
+          python report_cierre.py $ARGS
+
+      - name: Enviar mail a los socios
+        if: steps.gen.outputs.send == 'true'
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          MAIL_TO_SOCIOS: ${{ secrets.MAIL_TO_SOCIOS }}
+        run: |
+          python send_mail.py "${{ steps.gen.outputs.subject }}" preview_cierre.html \
+            --to-env MAIL_TO_SOCIOS \
+            logo=Logo.png \
+            comparativo=charts/cierre_comparativo.png \
+            progreso=charts/cierre_progreso.png
+
+      # data/cierres.json es el snapshot Y el candado. Si esto no se commitea, el
+      # mes se pierde cuando el dia 2 reinicie el acumulado. Por eso va si o si
+      # cuando se mando.
+      - name: Commitear cierre
+        if: steps.gen.outputs.send == 'true'
+        run: |
+          git config user.name "luccianos-bot"
+          git config user.email "bot@luccianos.local"
+          git add data/cierres.json charts/cierre_*.png Acumulado_cierre_ant.xlsx
+          if git diff --cached --quiet; then
+            echo "Sin cambios para commitear."
+          else
+            git commit -m "Cierre mensual ${{ steps.gen.outputs.mes }} [skip ci]"
+            git pull --rebase --autostash
+            git push
+          fi

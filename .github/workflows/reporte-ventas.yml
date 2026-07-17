@@ -1,24 +1,22 @@
 name: Reporte de Ventas Diario
 
-# DISPARADORES (3 formas de arrancar, en orden de prioridad):
-#   1. repository_dispatch -> lo dispara cron-job.org por API a las 7:30 AR (puntual).
-#   2. schedule (cron nativo) -> RED DE RESPALDO. Dispara 8:00 AR por si cron-job.org
-#      falla o tiene downtime. Como report.py tiene anti doble-conteo, si el reporte
-#      ya se mando a las 7:30, este corre, ve que la fecha ya se proceso y NO reenvia.
-#   3. workflow_dispatch -> boton manual para probar cuando quieras.
+# DISPARADORES:
+#   1. repository_dispatch -> lo dispara cron-job.org por API, todos los dias 7:00 AR.
+#   2. workflow_dispatch   -> boton manual para probar.
+# NO hay 'schedule' a proposito: un solo disparador automatico = imposible que se
+# mande dos veces. Si cron-job.org se cae, no llega el reporte y se corre a mano.
 on:
   repository_dispatch:
     types: [reporte-diario]
-  schedule:
-    # 11:00 UTC = 8:00 AR (UTC-3). Respaldo, media hora despues del disparo real.
-    - cron: "0 11 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
+# Los tres reportes comparten grupo: si dos se disparan cerca (ej. un dia 1ro que
+# cae viernes), se serializan y no chocan los git push.
 concurrency:
-  group: reporte-ventas
+  group: reportes-luccianos
   cancel-in-progress: false
 
 jobs:
@@ -42,6 +40,12 @@ jobs:
           IMAP_APP_PASS: ${{ secrets.IMAP_APP_PASS }}
         run: python fetch_touchbistro.py
 
+      # Registra el dia en data/historico_<anio>.json. Va ANTES de report.py a
+      # proposito: es idempotente (la fecha es la clave) y asi el dia queda
+      # guardado aunque report.py despues decida no enviar por fecha repetida.
+      - name: Registrar dia en el historial
+        run: python historico.py
+
       - name: Armar Acumulado 2025 desde el master
         run: python generar_acum2025.py
 
@@ -57,15 +61,18 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python send_mail.py "${{ steps.gen.outputs.subject }}" preview.html
 
+      # Corre SIEMPRE: el historial se escribe aunque no se mande el mail y no lo
+      # quiero perder. Si no hubo cambios, git lo detecta y no commitea nada.
       - name: Commitear resultados
-        if: steps.gen.outputs.send == 'true'
+        if: always()
         run: |
           git config user.name "luccianos-bot"
           git config user.email "bot@luccianos.local"
-          git add data/acumulado.json charts/ Ventas_ayer.xlsx Acumulado_interanual.xlsx
+          git add data/acumulado.json data/historico_*.json charts/ Ventas_ayer.xlsx Acumulado_interanual.xlsx
           if git diff --cached --quiet; then
             echo "Sin cambios para commitear."
           else
-            git commit -m "Reporte del ${{ steps.gen.outputs.date }} [skip ci]"
+            git commit -m "Datos del dia ${{ steps.gen.outputs.date }} [skip ci]"
+            git pull --rebase --autostash
             git push
           fi
