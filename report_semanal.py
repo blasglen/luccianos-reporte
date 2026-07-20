@@ -499,7 +499,7 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
 
   <!-- COMPARATIVO POR SUCURSAL -->
   <tr><td style="padding:22px 32px 6px 32px;">
-    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">SEMANA POR SUCURSAL · {str(anio)[2:]} vs {str(anio - 1)[2:]}</div>
+    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">SEMANA POR SUCURSAL · {anio} vs {anio - 1}</div>
     <img src="cid:comparativo" alt="Comparativo por sucursal" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
   </td></tr>
 
@@ -589,7 +589,7 @@ def main():
     from charts import build_charts_semanal
     rows_sem = [{"branch": r["branch"], "a26": r["sem26"], "a25": r["sem25"]} for r in rows]
     build_charts_semanal(rows_sem, totals, serie,
-                         f"Semana {str(hasta.year)[2:]}", f"Semana {str(hasta.year - 1)[2:]}",
+                         f"Semana {hasta.year}", f"Semana {hasta.year - 1}",
                          out_dir=str(BASE / "charts"))
 
     PREVIEW.write_text(
