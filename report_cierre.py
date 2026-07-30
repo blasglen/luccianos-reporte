@@ -27,6 +27,7 @@ from pathlib import Path
 
 from report import BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel_full
 from generar_acum_ant import acumular_rango, escribir_excel, espejo
+import mensual
 
 BASE = Path(__file__).parent
 SALIDA_ANT = BASE / "Acumulado_cierre_ant.xlsx"
@@ -261,7 +262,7 @@ def chip(pct, diff, grande=False):
             f'white-space:nowrap;">{s}{pct:.1f}%</span>{dd}')
 
 
-def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tks):
+def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tks, ytd):
     anio = ultimo.year
     mes_txt = MESES_ES[ultimo.month]
     a26_lbl = f"{MES_CORTO[ultimo.month].upper()}/{str(anio)[2:]}"
@@ -344,6 +345,67 @@ def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tk
         cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
     cuerpo += fila_subtotal("Subtotal Franquicias", franquicias)
 
+    # --- Bloque ACUMULADO DEL AÑO (YTD calendario) ---
+    filas_ytd = ""
+    for i, b in enumerate(BRANCH_ORDER):
+        v, va = round(ytd["por26"][b], 2), round(ytd["por25"][b], 2)
+        dp = ((v - va) / va * 100) if va else 0.0
+        share = (v / ytd["t26"] * 100) if ytd["t26"] else 0.0
+        z = "#ffffff" if i % 2 == 0 else "#fafafa"
+        filas_ytd += f"""
+        <tr style="background:{z};">
+          <td style="padding:11px 16px;color:#111111;font-size:13px;font-weight:600;">{b}<span style="color:#9a9a9a;font-size:11px;font-weight:400;"> &middot; {share:.1f}%</span></td>
+          <td style="padding:11px 12px;text-align:right;color:#111111;font-size:13px;">{money(v)}</td>
+          <td style="padding:11px 16px;text-align:right;">{chip(dp, 0)}</td>
+        </tr>"""
+    bloque_ytd = f"""
+  <!-- YTD -->
+  <tr><td style="padding:26px 32px 6px 32px;">
+    <div style="border-top:2px solid #0f1c33;padding-top:22px;">
+      <div style="color:#0f1c33;font-size:12px;letter-spacing:3px;font-weight:800;">ACUMULADO DEL A&Ntilde;O &middot; INTERANUAL</div>
+      <div style="color:#9a9a9a;font-size:11px;margin-top:4px;line-height:1.5;">Acumulado del a&ntilde;o calendario hasta el mes cerrado ({ytd["rango"]} {anio}) contra el mismo per&iacute;odo de {anio - 1}.</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;"><tr>
+        <td width="50%" style="padding-right:7px;vertical-align:top;">
+          <div style="background:#0f1c33;border-radius:12px;padding:20px;height:118px;">
+            <div style="color:#8ea6cf;font-size:10px;letter-spacing:1px;">ACUM. {ytd["lbl"]} {anio}</div>
+            <div style="color:#ffffff;font-size:24px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(ytd["t26"])}</div>
+            <div style="color:#8ea6cf;font-size:11px;margin-top:8px;">ticket prom. {money(ytd["tp"])} &middot; {ytd["tks"]:,} tickets</div>
+          </div>
+        </td>
+        <td width="50%" style="padding-left:7px;vertical-align:top;">
+          <div style="background:#f5f5f5;border-radius:12px;padding:20px;height:118px;">
+            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VARIACI&Oacute;N INTERANUAL</div>
+            <div style="margin-top:12px;">{chip(ytd["pct"], ytd["diff"], grande=True)}</div>
+            <div style="color:#9a9a9a;font-size:11px;margin-top:10px;">{ytd["rango"]} {anio - 1} ({money(ytd["t25"])})</div>
+          </div>
+        </td>
+      </tr></table>
+      <div style="background:#fafafa;border-radius:12px;padding:18px 20px;margin-top:16px;">
+        <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:4px;">VENTA MENSUAL &middot; {ytd["lbl"]} {anio} vs {anio - 1}</div>
+        <div style="color:#9a9a9a;font-size:11px;margin-bottom:8px;line-height:1.5;">Cada par de barras es un mes (a&ntilde;o anterior vs actual); arriba, el acumulado del a&ntilde;o de cada uno.</div>
+        <img src="cid:ytd" alt="Acumulado del a&ntilde;o" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
+      </div>
+      <div style="margin-top:16px;">
+        <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:10px;">POR SUCURSAL &middot; ACUMULADO DEL A&Ntilde;O vs {anio - 1}</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-radius:10px;overflow:hidden;box-shadow:0 1px 5px rgba(0,0,0,0.05);">
+          <thead><tr style="background:#0f1c33;">
+            <th style="padding:11px 16px;text-align:left;color:#ffffff;font-size:10px;letter-spacing:1px;">SUCURSAL &middot; PART.</th>
+            <th style="padding:11px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;">ACUM. A&Ntilde;O</th>
+            <th style="padding:11px 16px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;">vs. A&Ntilde;O ANT.</th>
+          </tr></thead>
+          <tbody>{filas_ytd}
+            <tr style="background:#0f1c33;">
+              <td style="padding:13px 16px;font-weight:800;color:#ffffff;font-size:13px;">TOTAL</td>
+              <td style="padding:13px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:13px;">{money(ytd["t26"])}</td>
+              <td style="padding:13px 16px;text-align:right;">{chip(ytd["pct"], 0)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="background:#fff8e6;border-left:3px solid #e0a800;border-radius:6px;padding:11px 14px;margin-top:14px;color:#6b5200;font-size:11px;line-height:1.6;"><b>C&oacute;mo leerlo.</b> Es el acumulado del a&ntilde;o calendario a la misma fecha en los dos a&ntilde;os, as&iacute; que compara lo que va del a&ntilde;o contra el a&ntilde;o pasado a esta altura.</div>
+    </div>
+  </td></tr>
+"""
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -428,7 +490,7 @@ def render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tk
       Ventas netas (Net Sales), sin impuestos. Las dos unidades de Vineland se informan consolidadas.
     </div>
   </td></tr>
-
+{bloque_ytd}
   <!-- FOOTER -->
   <tr><td style="background:#000000;padding:20px 32px;text-align:center;">
     <div style="color:#777777;font-size:11px;letter-spacing:1px;">LUCCIANO'S USA · Reporte automático generado el {date.today().strftime('%d/%m/%Y')}</div>
@@ -473,15 +535,42 @@ def main():
 
     rows, totals, propias, franquicias, mes_act, mes_ant, ia, fa, con_tks = construir(dia1, ultimo)
 
+    # --- Master mensual: registrar el mes cerrado y armar el ACUMULADO DEL ANIO (YTD) ---
+    # Registramos el mes que acaba de cerrar (idempotente) ANTES de calcular el YTD, asi
+    # el YTD incluye este mes. El anio anterior ya esta en el master (backfill).
+    by = {r["branch"]: r for r in rows}
+    por_suc_mes = {b: {"venta": mes_act[b], "tickets": by[b].get("tks26", 0)} for b in BRANCH_ORDER}
+    mensual.registrar_mes(anio, mes, por_suc_mes)
+    hist_path = BASE / "data" / f"historico_{anio}.json"
+    if hist_path.exists():
+        msg = mensual.conciliar_con_historial(anio, mes, json.loads(hist_path.read_text(encoding="utf-8")))
+        if msg:
+            print(msg)
+    y26, ytks26 = mensual.ytd_por_sucursal(anio, mes)
+    y25, _ = mensual.ytd_por_sucursal(anio - 1, mes)
+    t26, t25 = round(sum(y26.values()), 2), round(sum(y25.values()), 2)
+    ytks = sum(ytks26.values())
+    ytd = {"por26": y26, "por25": y25, "t26": t26, "t25": t25,
+           "diff": t26 - t25, "pct": ((t26 - t25) / t25 * 100) if t25 else 0.0,
+           "tks": ytks, "tp": (t26 / ytks) if ytks else 0.0,
+           "lbl": f"{MES_CORTO[1].upper()}-{MES_CORTO[mes].upper()}",
+           "rango": f"{MESES_ES[1].lower()} a {MESES_ES[mes].lower()}"}
+
     # Saque el grafico de "progreso": en un mes cerrado son las mismas dos barras
     # que ya estan en las KPI y en el comparativo. Un cierre tiene que ser concreto.
-    from charts import chart_comparativo
+    from charts import chart_comparativo, chart_ytd
     d = BASE / "charts"
     d.mkdir(exist_ok=True)
     chart_comparativo(rows, f"{MES_CORTO[mes]}/{str(anio)[2:]}",
                       f"{MES_CORTO[mes]}/{str(anio - 1)[2:]}", d / "cierre_comparativo.png")
+    # Grafico YTD: barras por mes (ene..mes), anio anterior vs actual
+    master = mensual.cargar()
+    labels = [MES_CORTO[m] for m in range(1, mes + 1)]
+    v_ant = [sum(master[f"{anio - 1}-{m:02d}"][b]["venta"] for b in BRANCH_ORDER) for m in range(1, mes + 1)]
+    v_act = [sum(master[f"{anio}-{m:02d}"][b]["venta"] for b in BRANCH_ORDER) for m in range(1, mes + 1)]
+    chart_ytd(labels, v_ant, v_act, t25, t26, str(anio - 1), str(anio), d / "cierre_ytd.png")
 
-    PREVIEW.write_text(render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tks),
+    PREVIEW.write_text(render_html(dia1, ultimo, rows, totals, propias, franquicias, ia, fa, con_tks, ytd),
                        encoding="utf-8")
     guardar_cierre(clave, dia1, ultimo, mes_act, mes_ant, totals)
 

@@ -154,3 +154,34 @@ def build_charts(rows, totals, mes, a26_lbl, a25_lbl, out_dir="charts"):
     chart_comparativo(rows, a26_lbl, a25_lbl, p1)
     chart_progreso(totals["a26"], totals["a25"], totals["pct"], p2)
     return str(p1), str(p2)
+
+
+def chart_ytd(labels, v_ant, v_act, ytd_ant, ytd_act, lbl_ant, lbl_act, out_path):
+    """Acumulado del anio (YTD): barras agrupadas por mes, anio anterior (celeste)
+    vs actual (azul), enero..mes cerrado. Arriba, el total YTD de cada anio."""
+    from matplotlib.patches import Patch
+    x = list(range(len(labels)))
+    w = 0.38
+    fig, ax = plt.subplots(figsize=(8.4, 3.5), dpi=DPI)
+    ax.bar([i - w / 2 for i in x], v_ant, width=w, color=CELESTE, zorder=3)
+    ax.bar([i + w / 2 for i in x], v_act, width=w, color=AZUL, zorder=3)
+    top = max(max(v_ant), max(v_act))
+    ax.set_ylim(0, top * 1.30)
+    ax.yaxis.set_major_formatter(FuncFormatter(_money_k))
+    ax.tick_params(axis="y", labelsize=8, colors=GRIS_TXT)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9.5, color="#333333")
+    ax.tick_params(axis="x", length=0)
+    for sp in ["top", "right", "left"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["bottom"].set_color("#dddddd")
+    ax.grid(axis="y", color="#f0f0f0", zorder=0)
+    ax.annotate(f"Acum. {lbl_ant}: ${ytd_ant/1e6:.2f}M", xy=(0, top * 1.26), ha="left", va="top",
+                fontsize=9.5, color="#3f5c86", fontweight="bold")
+    ax.annotate(f"Acum. {lbl_act}: ${ytd_act/1e6:.2f}M", xy=(len(labels) - 1, top * 1.26), ha="right", va="top",
+                fontsize=9.5, color=AZUL, fontweight="bold")
+    ax.legend(handles=[Patch(color=CELESTE, label=lbl_ant), Patch(color=AZUL, label=lbl_act)],
+              loc="lower center", bbox_to_anchor=(0.5, -0.26), ncol=2, frameon=False, fontsize=9)
+    fig.tight_layout(pad=0.6)
+    fig.savefig(out_path, transparent=True, bbox_inches="tight")
+    plt.close(fig)

@@ -69,7 +69,8 @@ El comparativo del año anterior sale siempre de `data/Ventas_Master_2025.xlsx` 
 | `generar_acum2025.py` | Comparativo del diario (1° del mes al día X) |
 | `generar_acum_ant.py` | Comparativo **genérico por rango**. Lo usan el semanal y el cierre |
 | `report_semanal.py` | Reporte semanal (lunes a domingo) |
-| `report_cierre.py` | Cierre mensual + snapshot en `data/cierres.json` |
+| `report_cierre.py` | Cierre mensual + snapshot en `data/cierres.json`. Registra el mes en `mensual.py` y agrega el bloque **Acumulado del año (YTD)** interanual |
+| `mensual.py` | Master mensual (24+ meses) y métricas de largo plazo: **acum. últimos 12 meses** (columna del semanal) y **acumulado del año / YTD** (bloque del cierre). Falla en rojo si a una ventana le falta un mes |
 | `charts.py` | Los gráficos (matplotlib, PNG transparentes, embebidos por CID) |
 | `send_mail.py` | Gmail SMTP. Primer destinatario en Para, el resto en CC |
 | `fetch_historico.py` | **One-shot**: rescata del IMAP los días viejos que sigan en la casilla |
@@ -81,6 +82,7 @@ El comparativo del año anterior sale siempre de `data/Ventas_Master_2025.xlsx` 
 | `data/historico_<año>.json` | Un día por clave: `{"venta": 1234.56, "tickets": 87}` por sucursal |
 | `data/semanal.json` | Candado: la última semana enviada. Evita reenvíos |
 | `data/cierres.json` | Snapshot de cada mes cerrado. **Es el candado y el archivo histórico a la vez** |
+| `data/mensual_master.json` | Un registro por mes y sucursal (venta + tickets). Lo backfilleás una vez y de ahí lo alimenta el cierre (`registrar_mes`). Fuente del acum. 12 meses (semanal) y del YTD (cierre) |
 
 ### Secrets
 `IMAP_USER` / `IMAP_APP_PASS` (casilla que **recibe** de TouchBistro) · `GMAIL_USER` / `GMAIL_APP_PASS` (casilla que **envía**) · `MAIL_TO` (diario) · `MAIL_TO_SOCIOS` (semanal y cierre).
@@ -111,6 +113,25 @@ El sistema prefiere **fallar en rojo antes que mandar un número mal**.
 - **Ventas netas** (Net Sales), sin impuestos. Las dos unidades de Vineland se informan consolidadas.
 
 ---
+
+## Acumulados de largo plazo (12 meses y año)
+
+Dos métricas nuevas viven en `mensual.py`, sobre `data/mensual_master.json` (un registro por mes y sucursal):
+
+- **Semanal → columna "Acum. Últ. 12M"**: acumulado de los últimos 12 meses cerrados por sucursal (ventana móvil que termina en el último mes cerrado). Solo el monto, en escala anual, sin variación. No se compara con la semana ni con el mes.
+- **Cierre → bloque "Acumulado del año (YTD)"**: acumulado del año calendario hasta el mes cerrado (ej. enero a junio) contra el mismo período del año anterior. En el cierre de julio pasa a enero–julio, y así.
+
+**Deploy inicial (una sola vez).** Antes del primer cierre con el master mensual, generá el archivo:
+
+```
+# Poné los exports mensuales de TouchBistro en ./backfill_exports/ y corré:
+python mensual.py backfill
+git add data/mensual_master.json && git commit -m "Backfill master mensual"
+```
+
+De ahí en más el cierre lo mantiene solo: cada día 1 registra el mes que cerró (`registrar_mes`), y el archivo se commitea en el workflow del cierre.
+
+**Control de dos caminos.** Cuando el historial diario cubre un mes completo, su suma tiene que dar igual al registro mensual, al centavo (`conciliar_con_historial`); si no cierran, el cierre corta en rojo. Mismo espíritu que la conciliación del semanal.
 
 ## Mantenimiento
 

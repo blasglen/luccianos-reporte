@@ -29,6 +29,7 @@ from report import (
     BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel_full,
 )
 from generar_acum_ant import acumular_rango, escribir_excel, espejo
+import mensual
 
 BASE = Path(__file__).parent
 SALIDA_ACUM_ANT = BASE / "Acumulado_semanal_ant.xlsx"
@@ -339,7 +340,7 @@ def chip(pct, diff, grande=False):
             f'white-space:nowrap;">{s}{pct:.1f}%</span>{dd}')
 
 
-def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks):
+def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks, v12):
     anio = hasta.year
     mes = MES_CORTO[hasta.month].upper()
     a26_lbl = f"ACUM. {mes}/{str(anio)[2:]}"
@@ -352,25 +353,39 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
     esp_sem = f"{espejo(desde).strftime('%d/%m/%Y')} al {espejo(hasta).strftime('%d/%m/%Y')}"
     esp_mes = f"{espejo(dia1).strftime('%d/%m')} al {espejo(hasta).strftime('%d/%m/%Y')}"
 
+    # Columna ACUM. ULT. 12M: acumulado de los ultimos 12 meses moviles por sucursal
+    # (viene de mensual.py, ya validado). Solo monto, sin variacion. Escala anual.
+    def compact(v):
+        if abs(v) >= 1e6: return f"${v/1e6:.2f}M"
+        if abs(v) >= 1e3: return f"${v/1e3:.0f}k"
+        return f"${v:,.0f}"
+    v12_prop = sum(v12[b] for b in PROPIAS)
+    v12_fran = sum(v12[b] for b in FRANQUICIAS)
+    v12_tot = sum(v12.values())
+    C12 = "border-left:1px solid #e2e2e2;color:#5f6b7a;font-weight:700;font-size:13px;"  # separador fino
+    BB = "border-bottom:1px solid #e6e6e6;"  # linea divisoria entre locales
+
     def fila(r, zebra):
         return f"""
         <tr style="background:{zebra};">
-          <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}
+          <td style="padding:14px 18px;{BB}font-weight:700;color:#111111;font-size:14px;">{r['branch']}
             <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{'' if sin_tks else f"ticket prom. {money(r['tp26'])}"}</div>
           </td>
-          <td style="padding:14px 12px;text-align:right;color:#111111;font-size:14px;">{money(r['sem26'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
-          <td style="padding:14px 18px;text-align:right;">{chip(r['pct'], r['diff'])}</td>
+          <td style="padding:14px 12px;{BB}text-align:right;color:#111111;font-size:14px;">{money(r['sem26'])}</td>
+          <td style="padding:14px 12px;{BB}text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
+          <td style="padding:14px 12px;{BB}text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
+          <td style="padding:14px 18px;{BB}text-align:right;">{chip(r['pct'], r['diff'])}</td>
+          <td style="padding:14px 16px 14px 10px;{BB}text-align:right;{C12}">{compact(v12[r['branch']])}</td>
         </tr>"""
 
     def encabezado_grupo(nombre):
         return f"""
         <tr style="background:#eef1f6;">
           <td colspan="5" style="padding:9px 18px;color:#1f3a6e;font-size:10px;font-weight:800;letter-spacing:2px;">{nombre}</td>
+          <td style="border-left:1px solid #e2e2e2;"></td>
         </tr>"""
 
-    def fila_subtotal(nombre, s):
+    def fila_subtotal(nombre, s, v12val):
         return f"""
         <tr style="background:#f5f5f5;border-top:1px solid #e2e2e2;">
           <td style="padding:14px 18px;font-weight:800;color:#1f3a6e;font-size:13px;">{nombre}</td>
@@ -378,17 +393,18 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
           <td style="padding:14px 12px;text-align:right;font-weight:800;color:#1f3a6e;font-size:13px;">{money(s['a26'])}</td>
           <td style="padding:14px 12px;text-align:right;font-weight:800;color:#7a8aa5;font-size:13px;">{money(s['a25'])}</td>
           <td style="padding:14px 18px;text-align:right;">{chip(s['pct'], s['diff'])}</td>
+          <td style="padding:14px 16px 14px 10px;text-align:right;{C12}">{compact(v12val)}</td>
         </tr>"""
 
     by_name = {r["branch"]: r for r in rows}
     cuerpo = encabezado_grupo("PROPIAS")
     for i, b in enumerate(PROPIAS):
         cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
-    cuerpo += fila_subtotal("Subtotal Propias", propias)
+    cuerpo += fila_subtotal("Subtotal Propias", propias, v12_prop)
     cuerpo += encabezado_grupo("FRANQUICIAS")
     for i, b in enumerate(FRANQUICIAS):
         cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
-    cuerpo += fila_subtotal("Subtotal Franquicias", franquicias)
+    cuerpo += fila_subtotal("Subtotal Franquicias", franquicias, v12_fran)
 
     prom = totals["sem26"] / len(serie)
 
@@ -513,7 +529,8 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
           <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">SEMANA</th>
           <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a26_lbl}</th>
           <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a25_lbl}</th>
-          <th style="padding:13px 18px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">VARIACIÓN</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">VAR.</th>
+          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;border-left:1px solid #3a3a3a;">ACUM. ÚLT. 12M</th>
         </tr>
       </thead>
       <tbody>{cuerpo}
@@ -523,12 +540,14 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
           <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a26'])}</td>
           <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a25'])}</td>
           <td style="padding:17px 18px;text-align:right;">{chip(totals['pct'], totals['diff'])}</td>
+          <td style="padding:17px 16px 17px 10px;text-align:right;color:#ffffff;font-weight:800;font-size:13px;border-left:1px solid #3a3a3a;">{compact(v12_tot)}</td>
         </tr>
       </tbody>
     </table>
     <div style="color:#9a9a9a;font-size:11px;margin-top:14px;line-height:1.6;">
       Semana del {desde.strftime('%d/%m')} al {hasta.strftime('%d/%m')}, comparada contra {esp_sem}.
       Acumulado del mes comparado contra {esp_mes} (mismas fechas calendario del año anterior).
+      La columna <b style="color:#0f1c33;">ACUM. ÚLT. 12M</b> es el acumulado de los últimos 12 meses cerrados por sucursal, en escala anual (no se compara con la semana ni con el mes).
       Ventas netas (Net Sales), sin impuestos. Las dos unidades de Vineland se informan consolidadas.
     </div>
   </td></tr>
@@ -578,6 +597,7 @@ def main():
         return 0
 
     rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks = construir(desde, hasta)
+    v12, _ = mensual.acum_12m_por_sucursal()  # acum 12 meses moviles por sucursal (ultimo cerrado)
     if sin_tks:
         print("[AVISO] Hay dias sin tickets en el historial (formato viejo). "
               "El reporte sale con la venta pero sin ticket promedio. Para "
@@ -593,7 +613,7 @@ def main():
                          out_dir=str(BASE / "charts"))
 
     PREVIEW.write_text(
-        render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks),
+        render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, peor, dia1, sin_tks, v12),
         encoding="utf-8")
     marcar_enviada(desde, hasta, totals)
 
