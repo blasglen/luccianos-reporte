@@ -61,7 +61,8 @@ jobs:
           python send_mail.py "${{ steps.gen.outputs.subject }}" preview_cierre.html \
             --to-env MAIL_TO_SOCIOS \
             logo=Logo.png \
-            comparativo=charts/cierre_comparativo.png
+            comparativo=charts/cierre_comparativo.png \
+            ytd=charts/cierre_ytd.png
 
       # data/cierres.json es el snapshot Y el candado. Si esto no se commitea, el
       # mes se pierde cuando el dia 2 reinicie el acumulado. Por eso va si o si
@@ -71,7 +72,7 @@ jobs:
         run: |
           git config user.name "luccianos-bot"
           git config user.email "bot@luccianos.local"
-          git add data/cierres.json charts/cierre_*.png Acumulado_cierre_ant.xlsx
+          git add data/cierres.json data/mensual_master.json charts/cierre_*.png Acumulado_cierre_ant.xlsx
           if git diff --cached --quiet; then
             echo "Sin cambios para commitear."
           else
