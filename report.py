@@ -107,6 +107,12 @@ def save_accumulator(path, data):
 
 
 def money(v):
+    # Sin decimales (redondeado). Formato US: $28,976
+    return f"${round(v):,}"
+
+
+def money2(v):
+    # Con 2 decimales. Solo para el TICKET PROMEDIO, donde los centavos importan.
     return f"${v:,.2f}"
 
 

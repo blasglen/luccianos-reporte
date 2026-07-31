@@ -26,7 +26,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from report import (
-    BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, parse_excel_full,
+    BRANCH_ORDER, PROPIAS, FRANQUICIAS, MESES_ES, MES_CORTO, money, money2, parse_excel_full,
 )
 from generar_acum_ant import acumular_rango, escribir_excel, espejo
 import mensual
@@ -369,7 +369,7 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
         return f"""
         <tr style="background:{zebra};">
           <td style="padding:14px 18px;{BB}font-weight:700;color:#111111;font-size:14px;">{r['branch']}
-            <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{'' if sin_tks else f"ticket prom. {money(r['tp26'])}"}</div>
+            <div style="color:#9a9a9a;font-size:11px;font-weight:400;margin-top:2px;">{'' if sin_tks else f"ticket prom. {money2(r['tp26'])}"}</div>
           </td>
           <td style="padding:14px 12px;{BB}text-align:right;color:#111111;font-size:14px;">{money(r['sem26'])}</td>
           <td style="padding:14px 12px;{BB}text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
@@ -431,10 +431,10 @@ def render_html(desde, hasta, rows, totals, propias, franquicias, serie, mejor, 
           <div style="background:#f5f5f5;border-radius:12px;padding:18px;">
             <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">TICKET PROMEDIO</div>
             <table role="presentation" width="100%"><tr>
-              <td style="color:#111111;font-size:20px;font-weight:800;padding-top:6px;">{money(totals['tp26'])}</td>
+              <td style="color:#111111;font-size:20px;font-weight:800;padding-top:6px;">{money2(totals['tp26'])}</td>
               <td style="text-align:right;">{chip(totals['tp_pct'], 0)}</td>
             </tr></table>
-            <div style="color:#9a9a9a;font-size:11px;margin-top:2px;">{money(totals['tp25'])} en {anio - 1}</div>
+            <div style="color:#9a9a9a;font-size:11px;margin-top:2px;">{money2(totals['tp25'])} en {anio - 1}</div>
           </div>
         </td>
       </tr>
