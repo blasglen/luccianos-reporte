@@ -1,0 +1,26 @@
+{
+  "2026-07": {
+    "desde": "2026-07-01",
+    "hasta": "2026-07-31",
+    "total": 470722.78,
+    "total_anio_anterior": 434455.47,
+    "variacion_pct": 8.35,
+    "por_sucursal": {
+      "Florida Mall": 86031.54,
+      "Weston": 74268.89,
+      "Vineland": 45090.68,
+      "American Dream": 105953.81,
+      "Sawgrass": 109074.12,
+      "Aventura": 50303.74
+    },
+    "por_sucursal_anio_anterior": {
+      "Florida Mall": 99607.12,
+      "Weston": 71424.16,
+      "Vineland": 24759.32,
+      "American Dream": 86168.38,
+      "Sawgrass": 118145.88,
+      "Aventura": 34350.61
+    },
+    "cerrado": "2026-08-01T15:02:54+00:00"
+  }
+}
