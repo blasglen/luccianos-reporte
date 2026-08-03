@@ -830,5 +830,31 @@
       "venta": 1678.24,
       "tickets": 98
     }
+  },
+  "2026-08-02": {
+    "Florida Mall": {
+      "venta": 3652.21,
+      "tickets": 215
+    },
+    "Weston": {
+      "venta": 3288.94,
+      "tickets": 176
+    },
+    "Vineland": {
+      "venta": 1227.33,
+      "tickets": 93
+    },
+    "American Dream": {
+      "venta": 4357.0,
+      "tickets": 249
+    },
+    "Sawgrass": {
+      "venta": 4759.03,
+      "tickets": 271
+    },
+    "Aventura": {
+      "venta": 2253.22,
+      "tickets": 125
+    }
   }
 }
