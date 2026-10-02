@@ -1,12 +1,12 @@
 {
-  "month": "2026-09",
-  "last_date": "2026-09-30",
+  "month": "2026-10",
+  "last_date": "2026-10-01",
   "acumulado": {
-    "Florida Mall": 60801.26,
-    "Weston": 52854.84,
-    "Vineland": 39415.96,
-    "American Dream": 59604.87,
-    "Sawgrass": 73947.8,
-    "Aventura": 33811.07
+    "Florida Mall": 1500.8,
+    "Weston": 499.07,
+    "Vineland": 1043.54,
+    "American Dream": 1264.49,
+    "Sawgrass": 2331.76,
+    "Aventura": 710.89
   }
 }
