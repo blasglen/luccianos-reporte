@@ -251,6 +251,8 @@ VERDE_CLARO = "#9fe0ad"   # positivos sobre fondo azul
 TINTA = "#111111"
 GRIS = "#8a8a8a"
 LINEA = "#e3e8f0"
+COL_LINEA = "#d5dce8"       # separador vertical de columnas en la tabla
+COL_LINEA_AZUL = "#3a5487"  # idem sobre el encabezado y la fila TOTAL
 
 
 def money_s(v):
@@ -374,6 +376,9 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
         pad = "12px 6px 12px 14px" if primera else ("12px 14px 12px 6px" if ultima else "12px 8px")
         return (f'<td style="padding:{pad};text-align:{"left" if primera else "right"};font-size:14px;'
                 f'color:{color};font-weight:{fw};white-space:nowrap;'
+                # Linea vertical entre columnas (no despues de la ultima). En la fila
+                # TOTAL (borde=False, fondo azul) va en un azul mas claro.
+                f'{"" if ultima else f"border-right:1px solid {COL_LINEA if borde else COL_LINEA_AZUL};"}'
                 f'{f"border-bottom:1px solid {LINEA};" if borde else ""}{f"background:{bg};" if bg else ""}">{contenido}</td>')
 
     def fila(r, nombre, sub=False):
@@ -399,8 +404,9 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
               + grupo("FRANQUICIAS") + "".join(fila(by_name[b], b) for b in FRANQUICIAS)
               + fila(franquicias, "Subtotal Franquicias", sub=True))
 
-    th = lambda txt, al, pad: (f'<th style="padding:{pad};text-align:{al};color:#ffffff;font-size:10px;'
-                              f'letter-spacing:1px;font-weight:700;">{txt}</th>')
+    th = lambda txt, al, pad, ultima=False: (f'<th style="padding:{pad};text-align:{al};color:#ffffff;font-size:10px;'
+                                            f'letter-spacing:0.5px;font-weight:700;white-space:nowrap;'
+                                            f'{"" if ultima else f"border-right:1px solid {COL_LINEA_AZUL};"}">{txt}</th>')
     titulo = lambda txt: f'<div style="font-size:11px;letter-spacing:2px;color:{GRIS};margin-bottom:8px;">{txt}</div>'
 
     return f"""<!DOCTYPE html>
@@ -447,7 +453,7 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid {LINEA};border-radius:12px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;min-width:560px;">
       <tr style="background:{AZUL};">
-        {th("SUCURSAL", "left", "11px 6px 11px 14px")}{th("AYER", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{yy}", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{ya}", "right", "11px 8px")}{th("VAR. %", "right", "11px 8px")}{th("DIF. $", "right", "11px 14px 11px 6px")}
+        {th("SUCURSAL", "left", "11px 6px 11px 14px")}{th("AYER", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{yy}", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{ya}", "right", "11px 8px")}{th("VAR. %", "right", "11px 8px")}{th("DIF. $", "right", "11px 14px 11px 6px", ultima=True)}
       </tr>
       {cuerpo}
       <tr style="background:{AZUL};">
