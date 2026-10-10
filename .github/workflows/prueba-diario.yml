@@ -1,0 +1,32 @@
+name: Prueba Reporte Diario
+
+# Solo manual. Manda el diario del ultimo dia procesado a UNA direccion que se
+# escribe al dispararlo. No usa MAIL_TO, no toca el acumulado ni el historial y
+# no commitea nada: se puede correr las veces que haga falta.
+on:
+  workflow_dispatch:
+    inputs:
+      destinatario:
+        description: "Mail que recibe la prueba (uno solo)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install openpyxl matplotlib
+      - name: Armar comparativo del anio anterior
+        run: python generar_acum2025.py
+      - name: Generar y enviar prueba
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          DESTINATARIO: ${{ inputs.destinatario }}
+        run: python prueba_diario.py "$DESTINATARIO"
