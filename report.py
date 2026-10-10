@@ -304,43 +304,70 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     fecha_larga = f"{DIAS_ES[fecha.weekday()].capitalize()} {fecha.day} de {MESES_ES[fecha.month].lower()} de {fecha.year}"
     T = totals
 
-    # ---- Bloque destacado: acumulado del mes + avance
-    tope = max(T["a26"], T["a25"]) * 1.04 or 1
-    hero = f"""
-    <div style="font-size:11px;letter-spacing:2px;color:{AZUL_SUAVE};">ACUMULADO {MESES_ES[fecha.month]} · 6 SUCURSALES</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
-      <td style="vertical-align:bottom;"><div style="font-size:38px;font-weight:800;color:#ffffff;letter-spacing:-1px;">{money_s(T['a26'])}</div></td>
-      <td style="vertical-align:bottom;text-align:right;padding-bottom:8px;">{_chip(T['pct'], 14)}</td>
-    </tr></table>
-    <div style="font-size:13px;color:{AZUL_SUAVE};margin-top:6px;">
-      <span style="color:{VERDE_CLARO if T['pct'] >= 0 else '#ff9a9a'};font-weight:700;">{dif_s(T['diff'])}</span>
-      vs. {mes}/{ya} ({money_s(T['a25'])}) al mismo día
-    </div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
-      <tr><td style="font-size:11px;color:#ffffff;font-weight:700;padding-bottom:4px;">{mes}/{yy}</td></tr>
-      <tr><td>{_barra(T['a26'] / tope * 100, '#7fd18b' if T['pct'] >= 0 else '#ef7d7d')}</td></tr>
-      <tr><td style="font-size:11px;color:{AZUL_SUAVE};padding:8px 0 4px 0;">{mes}/{ya}</td></tr>
-      <tr><td>{_barra(T['a25'] / tope * 100, '#4b6596')}</td></tr>
-    </table>
-    <div style="font-size:11px;color:{AZUL_SUAVE};margin-top:8px;">Día {fecha.day} de {dias_mes} del mes</div>"""
-
-    # ---- KPIs de ayer
-    def kpi(label, valor, nota):
-        return f"""<td width="33%" style="padding:14px 6px;text-align:center;vertical-align:top;">
-          <div style="font-size:10px;letter-spacing:1px;color:{GRIS};">{label}</div>
-          <div style="font-size:19px;font-weight:800;color:{TINTA};margin-top:6px;">{valor}</div>
-          <div style="font-size:11px;color:{GRIS};margin-top:4px;">{nota}</div></td>"""
-
+    # ---- Bloque principal: VENTA DE AYER (lo primero que se lee)
     tp_dia = _tp(T["dia"], T["tkd"])
+    dia_corto = f"{DIAS_ES[fecha.weekday()].capitalize()} {fecha.day}/{fecha.month}"
+
+    def stat(label, valor, nota, ultima=False, size=20):
+        sep = "" if ultima else f"border-right:1px solid #3a5487;"
+        return f"""<td width="33%" style="padding:12px 4px;text-align:center;vertical-align:top;{sep}">
+          <div style="font-size:10px;letter-spacing:1px;color:{AZUL_SUAVE};">{label}</div>
+          <div style="font-size:{size}px;font-weight:800;color:#ffffff;margin-top:5px;line-height:1.2;">{valor}</div>
+          <div style="font-size:11px;color:{AZUL_SUAVE};margin-top:3px;">{nota}</div></td>"""
+
     if con_tks:
-        tp26 = _tp(T["a26"], T["tk26"])
         nota_tks = f"{T['tk26']:,} en el mes"
-        nota_tp = f"{money2(tp26)} en el mes"
+        nota_tp = f"{money2(_tp(T['a26'], T['tk26']))} en el mes"
     else:
         nota_tks = nota_tp = "&nbsp;"
-    kpis = (kpi("VENTA DE AYER", money_s(T["dia"]), "6 sucursales")
-            + kpi("TICKETS AYER", f"{T['tkd']:,}", nota_tks)
-            + kpi("TICKET PROM.", money2(tp_dia), nota_tp))
+
+    # Reparto del dia entre propias y franquicias (barra partida)
+    vp, vf = propias["dia"], franquicias["dia"]
+    sp = vp / (vp + vf) * 100 if (vp + vf) else 50.0
+    reparto = f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+      <tr>
+        <td style="font-size:11px;color:#ffffff;padding-bottom:5px;"><span style="color:#8fd0ff;">&#9632;</span> Propias <b>{money_s(vp)}</b></td>
+        <td style="font-size:11px;color:#ffffff;padding-bottom:5px;text-align:right;">Franquicias <b>{money_s(vf)}</b> <span style="color:#f2c46d;">&#9632;</span></td>
+      </tr>
+      <tr><td colspan="2">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td width="{sp:.1f}%" style="padding:0;"><div style="height:10px;background:#8fd0ff;border-radius:5px 0 0 5px;font-size:1px;line-height:1px;">&nbsp;</div></td>
+          <td width="{100 - sp:.1f}%" style="padding:0;"><div style="height:10px;background:#f2c46d;border-radius:0 5px 5px 0;font-size:1px;line-height:1px;">&nbsp;</div></td>
+        </tr></table>
+      </td></tr>
+    </table>"""
+
+    ayer = f"""
+    <div style="font-size:11px;letter-spacing:2px;color:{AZUL_SUAVE};">VENTA DE AYER · {dia_corto.upper()}</div>
+    <div style="font-size:44px;font-weight:800;color:#ffffff;letter-spacing:-1px;margin-top:6px;">{money_s(T['dia'])}</div>
+    <div style="font-size:13px;color:{AZUL_SUAVE};margin-top:2px;">6 sucursales</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;background:#2a4a85;border-radius:10px;"><tr>
+      {stat("TICKETS", f"{T['tkd']:,}", nota_tks)}
+      {stat("TICKET PROM.", money2(tp_dia), nota_tp)}
+      {stat("MEJOR LOCAL", max(rows, key=lambda r: r["dia"])["branch"], money_s(max(r["dia"] for r in rows)), ultima=True, size=15)}
+    </tr></table>
+    {reparto}"""
+
+    # ---- Bloque secundario: acumulado del mes + avance (tarjeta clara)
+    tope = max(T["a26"], T["a25"]) * 1.04 or 1
+    acumulado = f"""
+    <div style="font-size:11px;letter-spacing:2px;color:{GRIS};">ACUMULADO {MESES_ES[fecha.month]}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>
+      <td style="vertical-align:bottom;"><div style="font-size:28px;font-weight:800;color:{AZUL};letter-spacing:-0.5px;">{money_s(T['a26'])}</div></td>
+      <td style="vertical-align:bottom;text-align:right;padding-bottom:5px;">{_chip(T['pct'], 13)}</td>
+    </tr></table>
+    <div style="font-size:12px;color:#5b6a85;margin-top:4px;">
+      <span style="color:{_col(T['pct'])};font-weight:700;">{dif_s(T['diff'])}</span>
+      vs. {mes}/{ya} ({money_s(T['a25'])}) al mismo día
+    </div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
+      <tr><td style="font-size:11px;color:{AZUL};font-weight:700;padding-bottom:4px;">{mes}/{yy}</td></tr>
+      <tr><td>{_barra(T['a26'] / tope * 100, VERDE if T['pct'] >= 0 else ROJO, 10)}</td></tr>
+      <tr><td style="font-size:11px;color:{GRIS};padding:7px 0 4px 0;">{mes}/{ya}</td></tr>
+      <tr><td>{_barra(T['a25'] / tope * 100, '#c3cddd', 10)}</td></tr>
+    </table>
+    <div style="font-size:11px;color:{GRIS};margin-top:7px;">Día {fecha.day} de {dias_mes} del mes</div>"""
 
     # ---- Variacion del mes por sucursal (barras divergentes, de mejor a peor)
     orden = sorted(rows, key=lambda r: r["pct"], reverse=True)
@@ -430,14 +457,14 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     </tr></table>
   </td></tr>
 
-  <!-- ACUMULADO DEL MES -->
+  <!-- VENTA DE AYER (principal) -->
   <tr><td style="padding:18px 16px 4px 16px;">
-    <div style="background:{AZUL};border-radius:14px;padding:22px 20px;">{hero}</div>
+    <div style="background:{AZUL};border-radius:14px;padding:22px 20px;">{ayer}</div>
   </td></tr>
 
-  <!-- AYER -->
-  <tr><td style="padding:18px 24px 4px 24px;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6fb;border-radius:12px;"><tr>{kpis}</tr></table>
+  <!-- ACUMULADO DEL MES (secundario) -->
+  <tr><td style="padding:14px 16px 4px 16px;">
+    <div style="background:#f3f6fb;border:1px solid {LINEA};border-radius:14px;padding:18px 20px;">{acumulado}</div>
   </td></tr>
 
   <!-- VARIACION POR SUCURSAL -->
