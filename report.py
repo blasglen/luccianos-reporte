@@ -273,11 +273,11 @@ def _col(p):
     return VERDE if p >= 0 else ROJO
 
 
-def _chip(p, size=12):
+def _chip(p, size=12, pad="3px 8px"):
     bg = "#eaf5ec" if p >= 0 else "#fbecec"
     flecha = "▲" if p >= 0 else "▼"
     return (f'<span style="display:inline-block;background:{bg};color:{_col(p)};font-weight:700;'
-            f'font-size:{size}px;padding:3px 8px;border-radius:20px;white-space:nowrap;">{flecha} {pct_s(p)}</span>')
+            f'font-size:{size}px;padding:{pad};border-radius:20px;white-space:nowrap;">{flecha} {pct_s(p)}</span>')
 
 
 def _barra(ancho_pct, color, alto=12, radio="6px", desde_derecha=False):
@@ -373,8 +373,8 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     # En el celular no entra: la tabla tiene un ancho minimo y va dentro de un
     # div con scroll horizontal (se desliza de izquierda a derecha).
     def celda(contenido, primera=False, ultima=False, color=TINTA, fw="400", bg=None, borde=True):
-        pad = "12px 6px 12px 14px" if primera else ("12px 14px 12px 6px" if ultima else "12px 8px")
-        return (f'<td style="padding:{pad};text-align:{"left" if primera else "right"};font-size:14px;'
+        pad = "11px 6px 11px 12px" if primera else ("11px 12px 11px 6px" if ultima else "11px 6px")
+        return (f'<td style="padding:{pad};text-align:{"left" if primera else "right"};font-size:13px;'
                 f'color:{color};font-weight:{fw};white-space:nowrap;'
                 # Linea vertical entre columnas (no despues de la ultima). En la fila
                 # TOTAL (borde=False, fondo azul) va en un azul mas claro.
@@ -390,7 +390,7 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
                 + celda(money_s(r["dia"]))
                 + celda(money_s(r["a26"]), color=nc, fw="800" if sub else "700")
                 + celda(money_s(r["a25"]), color="#6b778c", fw=fw)
-                + celda(_chip(r["pct"]))
+                + celda(_chip(r["pct"], 11, "2px 6px"))
                 + celda(dif_s(r["diff"]), ultima=True, color=_col(r["pct"]), fw="700")
                 + "</tr>")
 
@@ -447,13 +447,13 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
   </td></tr>
 
   <!-- DETALLE -->
-  <tr><td style="padding:24px 12px 24px 12px;">
+  <tr><td style="padding:24px 8px 24px 8px;">
     <div style="margin:0 12px;">{titulo("DETALLE POR SUCURSAL")}</div>
     <div class="pista-scroll" style="margin:0 12px 6px 12px;font-size:11px;color:{GRIS};">Deslizá la tabla para ver todas las columnas →</div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid {LINEA};border-radius:12px;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;min-width:560px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;min-width:500px;">
       <tr style="background:{AZUL};">
-        {th("SUCURSAL", "left", "11px 6px 11px 14px")}{th("AYER", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{yy}", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{ya}", "right", "11px 8px")}{th("VAR. %", "right", "11px 8px")}{th("DIF. $", "right", "11px 14px 11px 6px", ultima=True)}
+        {th("SUCURSAL", "left", "10px 6px 10px 12px")}{th("AYER", "right", "10px 6px")}{th(f"ACUM. {mes.upper()}/{yy}", "right", "10px 6px")}{th(f"ACUM. {mes.upper()}/{ya}", "right", "10px 6px")}{th("VAR. %", "right", "10px 6px")}{th("DIF. $", "right", "10px 12px 10px 6px", ultima=True)}
       </tr>
       {cuerpo}
       <tr style="background:{AZUL};">
@@ -461,7 +461,7 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
         {celda(money_s(T['dia']), color="#ffffff", fw="800", borde=False)}
         {celda(money_s(T['a26']), color="#ffffff", fw="800", borde=False)}
         {celda(money_s(T['a25']), color=AZUL_SUAVE, fw="800", borde=False)}
-        {celda(_chip(T['pct']), borde=False)}
+        {celda(_chip(T['pct'], 11, "2px 6px"), borde=False)}
         {celda(dif_s(T['diff']), ultima=True, color=VERDE_CLARO if T['pct'] >= 0 else '#ff9a9a', fw="800", borde=False)}
       </tr>
     </table>
