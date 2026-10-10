@@ -139,6 +139,21 @@ def tickets_mes(data_dir, fecha):
     return tks
 
 
+def venta_total_dia(data_dir, dia):
+    """Venta total (6 sucursales) de un dia segun el historial, o None si no esta."""
+    p = Path(data_dir) / f"historico_{dia.year}.json"
+    if not p.exists():
+        return None
+    registro = json.loads(p.read_text(encoding="utf-8")).get(dia.isoformat())
+    if not registro:
+        return None
+    total = 0.0
+    for b in BRANCH_ORDER:
+        v = registro.get(b, 0)
+        total += float(v.get("venta", 0)) if isinstance(v, dict) else float(v)
+    return total
+
+
 def build_report(ventas_path, acum25_path, acum_state_path):
     fecha_ini_v, fecha, venta_dia, tks_dia = parse_excel_full(ventas_path)
     a25_ini, a25_fin, acum25, tks25 = parse_excel_full(acum25_path)
@@ -233,7 +248,11 @@ def build_report(ventas_path, acum25_path, acum_state_path):
     # Sin graficos PNG: el diario dibuja las barras en HTML (se ven nitidas y
     # aparecen aunque el cliente de correo bloquee imagenes). Solo va el logo.
     con_tks = tks26 is not None and totals["tk25"] > 0
-    html = render_html(fecha, rows, totals, propias, franquicias, con_tks)
+    # Mismo dia de la semana anterior (ej. viernes vs viernes): la comparacion
+    # dia a dia mas justa. Si no esta en el historial, el recuadro dice "sin dato".
+    sem_ant = fecha - timedelta(days=7)
+    venta_sem_ant = venta_total_dia(Path(acum_state_path).parent, sem_ant)
+    html = render_html(fecha, rows, totals, propias, franquicias, con_tks, sem_ant, venta_sem_ant)
     return html, new_state, fecha, totals, []
 
 
@@ -294,7 +313,7 @@ def _tp(venta, tickets):
     return venta / tickets if tickets else 0.0
 
 
-def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
+def render_html(fecha, rows, totals, propias, franquicias, con_tks=True, sem_ant=None, venta_sem_ant=None):
     """con_tks=False: no se muestran tickets/ticket promedio del mes (falta historial)."""
     import calendar
     mes = MES_CORTO[fecha.month]
@@ -321,6 +340,19 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     else:
         nota_tks = nota_tp = "&nbsp;"
 
+    # Vs. mismo dia de la semana anterior
+    DIA_CORTO = {0: "LUN", 1: "MAR", 2: "MIÉ", 3: "JUE", 4: "VIE", 5: "SÁB", 6: "DOM"}
+    if sem_ant is not None and venta_sem_ant:
+        v = (T["dia"] / venta_sem_ant - 1) * 100
+        color_v = VERDE_CLARO if v >= 0 else "#ff9a9a"
+        flecha = "▲" if v >= 0 else "▼"
+        stat_sem_ant = stat(f"VS {DIA_CORTO[sem_ant.weekday()]} {sem_ant.day}/{sem_ant.month}",
+                            f'<span style="color:{color_v};white-space:nowrap;"><span style="font-size:13px;">{flecha}</span> {pct_s(v)}</span>',
+                            money_s(venta_sem_ant), ultima=True)
+    else:
+        lbl = f"VS {DIA_CORTO[sem_ant.weekday()]} {sem_ant.day}/{sem_ant.month}" if sem_ant else "SEMANA ANT."
+        stat_sem_ant = stat(lbl, "&mdash;", "sin dato", ultima=True)
+
     # Reparto del dia entre propias y franquicias (barra partida)
     vp, vf = propias["dia"], franquicias["dia"]
     sp = vp / (vp + vf) * 100 if (vp + vf) else 50.0
@@ -345,7 +377,7 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;background:#2a4a85;border-radius:10px;"><tr>
       {stat("TICKETS", f"{T['tkd']:,}", nota_tks)}
       {stat("TICKET PROM.", money2(tp_dia), nota_tp)}
-      {stat("MEJOR LOCAL", max(rows, key=lambda r: r["dia"])["branch"], money_s(max(r["dia"] for r in rows)), ultima=True, size=15)}
+      {stat_sem_ant}
     </tr></table>
     {reparto}"""
 
