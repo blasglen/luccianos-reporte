@@ -278,12 +278,14 @@ def _chip(p, size=12):
             f'font-size:{size}px;padding:3px 8px;border-radius:20px;white-space:nowrap;">{flecha} {pct_s(p)}</span>')
 
 
-def _barra(ancho_pct, color, alto=12):
+def _barra(ancho_pct, color, alto=12, radio="6px", desde_derecha=False):
+    """Barra como <div> con ancho en %. La app de Gmail ignora el ancho en % de
+    las celdas vacias (las barras quedaban de 1px); el de un div lo respeta.
+    desde_derecha=True la pega al borde derecho (barras negativas)."""
     ancho_pct = max(0.0, min(100.0, ancho_pct))
-    return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
-            f'<td width="{ancho_pct:.1f}%" style="background:{color};height:{alto}px;line-height:{alto}px;'
-            f'font-size:0;border-radius:6px;">&nbsp;</td>'
-            f'<td style="font-size:0;line-height:0;">&nbsp;</td></tr></table>')
+    margen = f"margin-left:{100 - ancho_pct:.1f}%;" if desde_derecha else ""
+    return (f'<div style="{margen}width:{ancho_pct:.1f}%;height:{alto}px;background:{color};'
+            f'border-radius:{radio};font-size:1px;line-height:1px;">&nbsp;</div>')
 
 
 def _tp(venta, tickets):
@@ -329,10 +331,9 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
 
     tp_dia = _tp(T["dia"], T["tkd"])
     if con_tks:
-        tp26, tp25 = _tp(T["a26"], T["tk26"]), _tp(T["a25"], T["tk25"])
-        tp_var = (tp26 / tp25 - 1) * 100 if tp25 else 0.0
+        tp26 = _tp(T["a26"], T["tk26"])
         nota_tks = f"{T['tk26']:,} en el mes"
-        nota_tp = f"mes {money2(tp26)} <span style=\"color:{_col(tp_var)};\">{pct_s(tp_var)}</span>"
+        nota_tp = f"{money2(tp26)} en el mes"
     else:
         nota_tks = nota_tp = "&nbsp;"
     kpis = (kpi("VENTA DE AYER", money_s(T["dia"]), "6 sucursales")
@@ -346,16 +347,11 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     def fila_var(r):
         w = abs(r["pct"]) / tope_pct * 100
         if r["pct"] < 0:
-            izq = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
-                   f'<td style="font-size:0;">&nbsp;</td>'
-                   f'<td width="{w:.1f}%" style="background:{ROJO};height:14px;font-size:0;border-radius:4px 0 0 4px;">&nbsp;</td>'
-                   f'</tr></table>')
+            izq = _barra(w, ROJO, 14, "4px 0 0 4px", desde_derecha=True)
             der = "&nbsp;"
         else:
             izq = "&nbsp;"
-            der = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
-                   f'<td width="{w:.1f}%" style="background:{VERDE};height:14px;font-size:0;border-radius:0 4px 4px 0;">&nbsp;</td>'
-                   f'<td style="font-size:0;">&nbsp;</td></tr></table>')
+            der = _barra(w, VERDE, 14, "0 4px 4px 0")
         return f"""<tr>
           <td style="padding:7px 8px 7px 0;font-size:13px;color:{TINTA};white-space:nowrap;width:118px;">{r['branch']}</td>
           <td width="30%" style="padding:7px 0;border-right:1px solid #cfcfcf;">{izq}</td>
@@ -371,23 +367,30 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
             return ""
         return f'<div style="font-size:11px;color:{color};margin-top:3px;">ticket prom. {money2(_tp(r["a26"], r["tk26"]))}</div>'
 
+    # 6 columnas: Sucursal | Ayer | Acum. 26 | Acum. 25 | Var. % | Dif. $
+    # En el celular no entra: la tabla tiene un ancho minimo y va dentro de un
+    # div con scroll horizontal (se desliza de izquierda a derecha).
+    def celda(contenido, primera=False, ultima=False, color=TINTA, fw="400", bg=None, borde=True):
+        pad = "12px 6px 12px 14px" if primera else ("12px 14px 12px 6px" if ultima else "12px 8px")
+        return (f'<td style="padding:{pad};text-align:{"left" if primera else "right"};font-size:14px;'
+                f'color:{color};font-weight:{fw};white-space:nowrap;'
+                f'{f"border-bottom:1px solid {LINEA};" if borde else ""}{f"background:{bg};" if bg else ""}">{contenido}</td>')
+
     def fila(r, nombre, sub=False):
         nc = AZUL if sub else TINTA
-        fw = "800" if sub else "700"
+        fw = "800" if sub else "400"
         bg = "#eef2f9" if sub else "#ffffff"
-        return f"""<tr style="background:{bg};">
-          <td style="padding:12px 0 12px 16px;border-bottom:1px solid {LINEA};">
-            <div style="font-size:14px;font-weight:{fw};color:{nc};">{nombre}</div>{linea_tp(r)}</td>
-          <td style="padding:12px 8px;text-align:right;font-size:14px;color:{TINTA};border-bottom:1px solid {LINEA};white-space:nowrap;">{money_s(r['dia'])}</td>
-          <td style="padding:12px 8px;text-align:right;border-bottom:1px solid {LINEA};white-space:nowrap;">
-            <div style="font-size:14px;font-weight:{fw};color:{nc};">{money_s(r['a26'])}</div>
-            <div style="font-size:11px;color:{GRIS};margin-top:3px;">{money_s(r['a25'])} en {ya}</div></td>
-          <td style="padding:12px 16px 12px 4px;text-align:right;border-bottom:1px solid {LINEA};white-space:nowrap;">
-            {_chip(r['pct'])}<div style="font-size:11px;color:{_col(r['pct'])};margin-top:4px;">{dif_s(r['diff'])}</div></td>
-        </tr>"""
+        return (f'<tr style="background:{bg};">'
+                + celda(f'<div style="font-weight:{"800" if sub else "700"};color:{nc};">{nombre}</div>{linea_tp(r)}', primera=True)
+                + celda(money_s(r["dia"]))
+                + celda(money_s(r["a26"]), color=nc, fw="800" if sub else "700")
+                + celda(money_s(r["a25"]), color="#6b778c", fw=fw)
+                + celda(_chip(r["pct"]))
+                + celda(dif_s(r["diff"]), ultima=True, color=_col(r["pct"]), fw="700")
+                + "</tr>")
 
     def grupo(nombre):
-        return (f'<tr><td colspan="4" style="padding:14px 16px 6px 16px;font-size:10px;font-weight:800;'
+        return (f'<tr><td colspan="6" style="padding:14px 14px 6px 14px;font-size:10px;font-weight:800;'
                 f'letter-spacing:2px;color:{AZUL};">{nombre}</td></tr>')
 
     by_name = {r["branch"]: r for r in rows}
@@ -403,12 +406,13 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head>
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light">
+<style>@media (min-width:620px){{ .pista-scroll{{display:none !important;}} }}</style></head>
 <body style="margin:0;padding:0;background:#e9edf3;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e9edf3;">
 <tr><td align="center" style="padding:16px 8px;">
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;table-layout:fixed;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
 
   <!-- HEADER -->
   <tr><td style="background:{AZUL_OSC};padding:18px 22px;">
@@ -439,21 +443,23 @@ def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
   <!-- DETALLE -->
   <tr><td style="padding:24px 12px 24px 12px;">
     <div style="margin:0 12px;">{titulo("DETALLE POR SUCURSAL")}</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid {LINEA};border-radius:12px;overflow:hidden;">
+    <div class="pista-scroll" style="margin:0 12px 6px 12px;font-size:11px;color:{GRIS};">Deslizá la tabla para ver todas las columnas →</div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid {LINEA};border-radius:12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;min-width:560px;">
       <tr style="background:{AZUL};">
-        {th("SUCURSAL", "left", "11px 0 11px 16px")}{th("AYER", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}", "right", "11px 8px")}{th("VAR.", "right", "11px 16px 11px 4px")}
+        {th("SUCURSAL", "left", "11px 6px 11px 14px")}{th("AYER", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{yy}", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}/{ya}", "right", "11px 8px")}{th("VAR. %", "right", "11px 8px")}{th("DIF. $", "right", "11px 14px 11px 6px")}
       </tr>
       {cuerpo}
       <tr style="background:{AZUL};">
-        <td style="padding:14px 0 14px 16px;"><div style="font-size:14px;font-weight:800;color:#ffffff;">TOTAL</div>{linea_tp(T, AZUL_SUAVE)}</td>
-        <td style="padding:14px 8px;text-align:right;font-size:14px;font-weight:800;color:#ffffff;">{money_s(T['dia'])}</td>
-        <td style="padding:14px 8px;text-align:right;">
-          <div style="font-size:14px;font-weight:800;color:#ffffff;">{money_s(T['a26'])}</div>
-          <div style="font-size:11px;color:{AZUL_SUAVE};margin-top:3px;">{money_s(T['a25'])} en {ya}</div></td>
-        <td style="padding:14px 16px 14px 4px;text-align:right;">{_chip(T['pct'])}
-          <div style="font-size:11px;color:{VERDE_CLARO if T['pct'] >= 0 else '#ff9a9a'};margin-top:4px;">{dif_s(T['diff'])}</div></td>
+        {celda(f'<div style="font-weight:800;color:#ffffff;">TOTAL</div>{linea_tp(T, AZUL_SUAVE)}', primera=True, borde=False)}
+        {celda(money_s(T['dia']), color="#ffffff", fw="800", borde=False)}
+        {celda(money_s(T['a26']), color="#ffffff", fw="800", borde=False)}
+        {celda(money_s(T['a25']), color=AZUL_SUAVE, fw="800", borde=False)}
+        {celda(_chip(T['pct']), borde=False)}
+        {celda(dif_s(T['diff']), ultima=True, color=VERDE_CLARO if T['pct'] >= 0 else '#ff9a9a', fw="800", borde=False)}
       </tr>
     </table>
+    </div>
   </td></tr>
 
   <!-- FOOTER -->
