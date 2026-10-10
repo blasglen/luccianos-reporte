@@ -3,12 +3,13 @@ Lucciano's - Reporte de Ventas Diario
 Genera el mail HTML comparando el mes en curso (2026) contra el mismo periodo del anio anterior (2025).
 
 Flujo:
-  1. Lee Ventas_ayer.xlsx       -> venta del dia (2026)
-  2. Lee acum_jun26.json        -> acumulado del mes previo (persistido en el repo)
+  1. Lee Ventas_ayer.xlsx       -> venta y tickets del dia (2026)
+  2. Lee data/acumulado.json    -> acumulado del mes previo (persistido en el repo)
   3. Acum.26 = acum previo + venta del dia  (se vuelve a guardar)
-  4. Lee Acumulado_interanual.xlsx -> acumulado 2025 (comparativo)
-  5. Variacion = (acum26 - acum25) / acum25
-  6. Genera el HTML del mail
+  4. Lee Acumulado_interanual.xlsx -> venta y tickets acumulados 2025 (comparativo)
+  5. Lee data/historico_<anio>.json -> tickets acumulados del mes 2026
+  6. Variacion = (acum26 - acum25) / acum25
+  7. Genera el HTML del mail (diseno "A4": azul marino, sin imagenes salvo el logo)
 """
 import json
 import os
@@ -116,9 +117,31 @@ def money2(v):
     return f"${v:,.2f}"
 
 
+def tickets_mes(data_dir, fecha):
+    """Tickets del 1ro del mes hasta `fecha` por sucursal, sumados del historial.
+    Devuelve None si falta algun dia o alguno esta en formato viejo (sin tickets)."""
+    p = Path(data_dir) / f"historico_{fecha.year}.json"
+    if not p.exists():
+        return None
+    hist = json.loads(p.read_text(encoding="utf-8"))
+    tks = {b: 0 for b in BRANCH_ORDER}
+    for d in range(1, fecha.day + 1):
+        dia = hist.get(fecha.replace(day=d).isoformat())
+        if dia is None:
+            print(f"[AVISO] Falta el dia {fecha.replace(day=d)} en el historial: el mail sale sin tickets del mes.")
+            return None
+        for b in BRANCH_ORDER:
+            v = dia.get(b)
+            if not isinstance(v, dict) or "tickets" not in v:
+                print(f"[AVISO] El dia {fecha.replace(day=d)} no tiene tickets: el mail sale sin tickets del mes.")
+                return None
+            tks[b] += int(v["tickets"])
+    return tks
+
+
 def build_report(ventas_path, acum25_path, acum_state_path):
-    fecha_ini_v, fecha, venta_dia = parse_excel(ventas_path)
-    a25_ini, a25_fin, acum25 = parse_excel(acum25_path)
+    fecha_ini_v, fecha, venta_dia, tks_dia = parse_excel_full(ventas_path)
+    a25_ini, a25_fin, acum25, tks25 = parse_excel_full(acum25_path)
 
     # Validacion: ambos Excel deben referirse al mismo mes y terminar el mismo dia (comparacion espejo).
     # Ventas_ayer = un dia (fecha). Acumulado_interanual = rango del anio anterior, mismo mes, hasta el mismo dia.
@@ -173,6 +196,12 @@ def build_report(ventas_path, acum25_path, acum_state_path):
     # Acum.26 = previo (del mes en curso) + venta del dia
     acum26 = {b: round(acum_prev.get(b, 0.0) + venta_dia[b], 2) for b in BRANCH_ORDER}
 
+    # Tickets acumulados del mes 2026: salen del historial (historico.py corre
+    # antes que este script, asi que el dia de hoy ya esta). Si al historial le
+    # falta algun dia del mes, los tickets del mes quedarian cortos y el ticket
+    # promedio mal: en ese caso no se muestran (el mail sale igual con la venta).
+    tks26 = tickets_mes(Path(acum_state_path).parent, fecha)
+
     rows = []
     for b in BRANCH_ORDER:
         d = venta_dia[b]
@@ -180,25 +209,20 @@ def build_report(ventas_path, acum25_path, acum_state_path):
         a25 = acum25[b]
         diff = a26 - a25
         pct = (diff / a25 * 100) if a25 else 0.0
-        rows.append({"branch": b, "dia": d, "a26": a26, "a25": a25, "diff": diff, "pct": pct})
+        rows.append({"branch": b, "dia": d, "a26": a26, "a25": a25, "diff": diff, "pct": pct,
+                     "tkd": tks_dia[b],
+                     "tk26": tks26[b] if tks26 else 0,
+                     "tk25": tks25[b]})
 
-    totals = {
-        "dia": sum(r["dia"] for r in rows),
-        "a26": sum(r["a26"] for r in rows),
-        "a25": sum(r["a25"] for r in rows),
-    }
-    totals["diff"] = totals["a26"] - totals["a25"]
-    totals["pct"] = (totals["diff"] / totals["a25"] * 100) if totals["a25"] else 0.0
+    CAMPOS = ("dia", "a26", "a25", "tkd", "tk26", "tk25")
 
     def subtotal(grupo):
-        s = {
-            "dia": sum(r["dia"] for r in rows if r["branch"] in grupo),
-            "a26": sum(r["a26"] for r in rows if r["branch"] in grupo),
-            "a25": sum(r["a25"] for r in rows if r["branch"] in grupo),
-        }
+        s = {k: sum(r[k] for r in rows if r["branch"] in grupo) for k in CAMPOS}
         s["diff"] = s["a26"] - s["a25"]
         s["pct"] = (s["diff"] / s["a25"] * 100) if s["a25"] else 0.0
         return s
+
+    totals = subtotal(BRANCH_ORDER)
 
     propias = subtotal(PROPIAS)
     franquicias = subtotal(FRANQUICIAS)
@@ -206,180 +230,242 @@ def build_report(ventas_path, acum25_path, acum_state_path):
     # Persistir el nuevo acumulado, el mes activo y la fecha procesada
     new_state = {"month": mes_actual, "last_date": fecha.isoformat(), "acumulado": acum26}
 
-    # Graficos (PNG para incrustar via CID)
-    from charts import build_charts
+    # Sin graficos PNG: el diario dibuja las barras en HTML (se ven nitidas y
+    # aparecen aunque el cliente de correo bloquee imagenes). Solo va el logo.
+    con_tks = tks26 is not None and totals["tk25"] > 0
+    html = render_html(fecha, rows, totals, propias, franquicias, con_tks)
+    return html, new_state, fecha, totals, []
+
+
+# --- Diseno del mail (variante "A4": azul marino corporativo) ----------------------
+# Todo con tablas e estilos inline: es lo unico que Gmail/Outlook respetan.
+# Ancho fluido (max 600px): en el celular ocupa la pantalla, en la compu queda centrado.
+# Las barras son celdas de tabla con ancho en %, no imagenes.
+
+AZUL = "#1f3a6e"
+AZUL_OSC = "#0f2147"
+AZUL_SUAVE = "#b7c4dd"
+VERDE = "#1a7d2e"
+ROJO = "#c62828"
+VERDE_CLARO = "#9fe0ad"   # positivos sobre fondo azul
+TINTA = "#111111"
+GRIS = "#8a8a8a"
+LINEA = "#e3e8f0"
+
+
+def money_s(v):
+    """Monto sin decimales con signo menos real: -1620 -> '−$1,620'."""
+    return ("−" if v < 0 else "") + f"${abs(round(v)):,}"
+
+
+def dif_s(v):
+    """Diferencia con signo siempre: '+$932' / '−$1,620'."""
+    return ("+" if v >= 0 else "−") + f"${abs(round(v)):,}"
+
+
+def pct_s(p):
+    return ("+" if p >= 0 else "−") + f"{abs(p):.1f}%"
+
+
+def _col(p):
+    return VERDE if p >= 0 else ROJO
+
+
+def _chip(p, size=12):
+    bg = "#eaf5ec" if p >= 0 else "#fbecec"
+    flecha = "▲" if p >= 0 else "▼"
+    return (f'<span style="display:inline-block;background:{bg};color:{_col(p)};font-weight:700;'
+            f'font-size:{size}px;padding:3px 8px;border-radius:20px;white-space:nowrap;">{flecha} {pct_s(p)}</span>')
+
+
+def _barra(ancho_pct, color, alto=12):
+    ancho_pct = max(0.0, min(100.0, ancho_pct))
+    return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+            f'<td width="{ancho_pct:.1f}%" style="background:{color};height:{alto}px;line-height:{alto}px;'
+            f'font-size:0;border-radius:6px;">&nbsp;</td>'
+            f'<td style="font-size:0;line-height:0;">&nbsp;</td></tr></table>')
+
+
+def _tp(venta, tickets):
+    return venta / tickets if tickets else 0.0
+
+
+def render_html(fecha, rows, totals, propias, franquicias, con_tks=True):
+    """con_tks=False: no se muestran tickets/ticket promedio del mes (falta historial)."""
+    import calendar
     mes = MES_CORTO[fecha.month]
-    a26_lbl = f"Acum. {mes}/{str(fecha.year)[2:]}"
-    a25_lbl = f"Acum. {mes}/{str(fecha.year - 1)[2:]}"
-    base_dir = Path(acum_state_path).parent.parent
-    chart_paths = build_charts(rows, totals, mes, a26_lbl, a25_lbl, out_dir=str(base_dir / "charts"))
+    yy = str(fecha.year)[2:]
+    ya = str(fecha.year - 1)[2:]
+    dias_mes = calendar.monthrange(fecha.year, fecha.month)[1]
+    fecha_larga = f"{DIAS_ES[fecha.weekday()].capitalize()} {fecha.day} de {MESES_ES[fecha.month].lower()} de {fecha.year}"
+    T = totals
 
-    html = render_html(fecha, rows, totals, propias, franquicias)
-    return html, new_state, fecha, totals, chart_paths
+    # ---- Bloque destacado: acumulado del mes + avance
+    tope = max(T["a26"], T["a25"]) * 1.04 or 1
+    hero = f"""
+    <div style="font-size:11px;letter-spacing:2px;color:{AZUL_SUAVE};">ACUMULADO {MESES_ES[fecha.month]} · 6 SUCURSALES</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
+      <td style="vertical-align:bottom;"><div style="font-size:38px;font-weight:800;color:#ffffff;letter-spacing:-1px;">{money_s(T['a26'])}</div></td>
+      <td style="vertical-align:bottom;text-align:right;padding-bottom:8px;">{_chip(T['pct'], 14)}</td>
+    </tr></table>
+    <div style="font-size:13px;color:{AZUL_SUAVE};margin-top:6px;">
+      <span style="color:{VERDE_CLARO if T['pct'] >= 0 else '#ff9a9a'};font-weight:700;">{dif_s(T['diff'])}</span>
+      vs. {mes}/{ya} ({money_s(T['a25'])}) al mismo día
+    </div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
+      <tr><td style="font-size:11px;color:#ffffff;font-weight:700;padding-bottom:4px;">{mes}/{yy}</td></tr>
+      <tr><td>{_barra(T['a26'] / tope * 100, '#7fd18b' if T['pct'] >= 0 else '#ef7d7d')}</td></tr>
+      <tr><td style="font-size:11px;color:{AZUL_SUAVE};padding:8px 0 4px 0;">{mes}/{ya}</td></tr>
+      <tr><td>{_barra(T['a25'] / tope * 100, '#4b6596')}</td></tr>
+    </table>
+    <div style="font-size:11px;color:{AZUL_SUAVE};margin-top:8px;">Día {fecha.day} de {dias_mes} del mes</div>"""
 
+    # ---- KPIs de ayer
+    def kpi(label, valor, nota):
+        return f"""<td width="33%" style="padding:14px 6px;text-align:center;vertical-align:top;">
+          <div style="font-size:10px;letter-spacing:1px;color:{GRIS};">{label}</div>
+          <div style="font-size:19px;font-weight:800;color:{TINTA};margin-top:6px;">{valor}</div>
+          <div style="font-size:11px;color:{GRIS};margin-top:4px;">{nota}</div></td>"""
 
-def _pct_html(pct, diff):
-    color = "#2e7d32" if pct >= 0 else "#c62828"
-    sign = "+" if pct >= 0 else ""
-    diff_str = f"({sign}{money(diff)})" if diff < 0 else f"(+{money(diff)})"
-    # diff puede ser negativo; money ya pone el signo? No: money no pone signo de resta para negativos formateados con :,.2f -> si lo pone
-    diff_str = f"({money(diff)})" if diff < 0 else f"(+{money(diff)})"
-    return f'<span style="color:{color};font-weight:700;">{sign}{pct:.1f}%</span><br><span style="color:{color};font-size:12px;">{diff_str}</span>'
+    tp_dia = _tp(T["dia"], T["tkd"])
+    if con_tks:
+        tp26, tp25 = _tp(T["a26"], T["tk26"]), _tp(T["a25"], T["tk25"])
+        tp_var = (tp26 / tp25 - 1) * 100 if tp25 else 0.0
+        nota_tks = f"{T['tk26']:,} en el mes"
+        nota_tp = f"mes {money2(tp26)} <span style=\"color:{_col(tp_var)};\">{pct_s(tp_var)}</span>"
+    else:
+        nota_tks = nota_tp = "&nbsp;"
+    kpis = (kpi("VENTA DE AYER", money_s(T["dia"]), "6 sucursales")
+            + kpi("TICKETS AYER", f"{T['tkd']:,}", nota_tks)
+            + kpi("TICKET PROM.", money2(tp_dia), nota_tp))
 
+    # ---- Variacion del mes por sucursal (barras divergentes, de mejor a peor)
+    orden = sorted(rows, key=lambda r: r["pct"], reverse=True)
+    tope_pct = max(abs(r["pct"]) for r in rows) or 1
 
-def render_html(fecha, rows, totals, propias, franquicias):
-    mes = MES_CORTO[fecha.month]
-    anio_corto = str(fecha.year)[2:]
-    anio_ant = str(fecha.year - 1)[2:]
-    fecha_larga = f"{DIAS_ES[fecha.weekday()]} {fecha.day} DE {MESES_ES[fecha.month]} DE {fecha.year}"
-    a26_lbl = f"ACUM. {mes.upper()}/{anio_corto}"
-    a25_lbl = f"ACUM. {mes.upper()}/{anio_ant}"
-
-    def chip(pct, diff):
-        up = pct >= 0
-        col = "#1a7d2e" if up else "#c62828"
-        bg = "#eaf5ec" if up else "#fbecec"
-        s = "+" if up else ""
-        dd = f"(+{money(diff)})" if diff >= 0 else f"({money(diff)})"
-        return (f'<span style="display:inline-block;background:{bg};color:{col};'
-                f'font-weight:700;font-size:12px;padding:3px 9px;border-radius:20px;white-space:nowrap;">'
-                f'{s}{pct:.1f}%</span>'
-                f'<div style="color:{col};font-size:11px;margin-top:3px;">{dd}</div>')
-
-    def fila(r, zebra):
-        return f"""
-        <tr style="background:{zebra};">
-          <td style="padding:14px 18px;font-weight:700;color:#111111;font-size:14px;">{r['branch']}</td>
-          <td style="padding:14px 12px;text-align:right;color:#111111;font-size:14px;">{money(r['dia'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#111111;font-weight:700;font-size:14px;">{money(r['a26'])}</td>
-          <td style="padding:14px 12px;text-align:right;color:#9a9a9a;font-size:14px;">{money(r['a25'])}</td>
-          <td style="padding:14px 18px;text-align:right;">{chip(r['pct'], r['diff'])}</td>
+    def fila_var(r):
+        w = abs(r["pct"]) / tope_pct * 100
+        if r["pct"] < 0:
+            izq = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+                   f'<td style="font-size:0;">&nbsp;</td>'
+                   f'<td width="{w:.1f}%" style="background:{ROJO};height:14px;font-size:0;border-radius:4px 0 0 4px;">&nbsp;</td>'
+                   f'</tr></table>')
+            der = "&nbsp;"
+        else:
+            izq = "&nbsp;"
+            der = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+                   f'<td width="{w:.1f}%" style="background:{VERDE};height:14px;font-size:0;border-radius:0 4px 4px 0;">&nbsp;</td>'
+                   f'<td style="font-size:0;">&nbsp;</td></tr></table>')
+        return f"""<tr>
+          <td style="padding:7px 8px 7px 0;font-size:13px;color:{TINTA};white-space:nowrap;width:118px;">{r['branch']}</td>
+          <td width="30%" style="padding:7px 0;border-right:1px solid #cfcfcf;">{izq}</td>
+          <td width="30%" style="padding:7px 0;">{der}</td>
+          <td style="padding:7px 0 7px 10px;font-size:13px;font-weight:700;color:{_col(r['pct'])};text-align:right;white-space:nowrap;width:62px;">{pct_s(r['pct'])}</td>
         </tr>"""
 
-    def encabezado_grupo(nombre):
-        return f"""
-        <tr style="background:#eef1f6;">
-          <td colspan="5" style="padding:9px 18px;color:#1f3a6e;font-size:10px;font-weight:800;letter-spacing:2px;">{nombre}</td>
+    variacion = "".join(fila_var(r) for r in orden)
+
+    # ---- Tabla de detalle
+    def linea_tp(r, color=GRIS):
+        if not con_tks:
+            return ""
+        return f'<div style="font-size:11px;color:{color};margin-top:3px;">ticket prom. {money2(_tp(r["a26"], r["tk26"]))}</div>'
+
+    def fila(r, nombre, sub=False):
+        nc = AZUL if sub else TINTA
+        fw = "800" if sub else "700"
+        bg = "#eef2f9" if sub else "#ffffff"
+        return f"""<tr style="background:{bg};">
+          <td style="padding:12px 0 12px 16px;border-bottom:1px solid {LINEA};">
+            <div style="font-size:14px;font-weight:{fw};color:{nc};">{nombre}</div>{linea_tp(r)}</td>
+          <td style="padding:12px 8px;text-align:right;font-size:14px;color:{TINTA};border-bottom:1px solid {LINEA};white-space:nowrap;">{money_s(r['dia'])}</td>
+          <td style="padding:12px 8px;text-align:right;border-bottom:1px solid {LINEA};white-space:nowrap;">
+            <div style="font-size:14px;font-weight:{fw};color:{nc};">{money_s(r['a26'])}</div>
+            <div style="font-size:11px;color:{GRIS};margin-top:3px;">{money_s(r['a25'])} en {ya}</div></td>
+          <td style="padding:12px 16px 12px 4px;text-align:right;border-bottom:1px solid {LINEA};white-space:nowrap;">
+            {_chip(r['pct'])}<div style="font-size:11px;color:{_col(r['pct'])};margin-top:4px;">{dif_s(r['diff'])}</div></td>
         </tr>"""
 
-    def fila_subtotal(nombre, s):
-        return f"""
-        <tr style="background:#f5f5f5;border-top:1px solid #e2e2e2;">
-          <td style="padding:14px 18px;font-weight:800;color:#1f3a6e;font-size:13px;">{nombre}</td>
-          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#1f3a6e;font-size:13px;">{money(s['dia'])}</td>
-          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#1f3a6e;font-size:13px;">{money(s['a26'])}</td>
-          <td style="padding:14px 12px;text-align:right;font-weight:800;color:#7a8aa5;font-size:13px;">{money(s['a25'])}</td>
-          <td style="padding:14px 18px;text-align:right;">{chip(s['pct'], s['diff'])}</td>
-        </tr>"""
+    def grupo(nombre):
+        return (f'<tr><td colspan="4" style="padding:14px 16px 6px 16px;font-size:10px;font-weight:800;'
+                f'letter-spacing:2px;color:{AZUL};">{nombre}</td></tr>')
 
     by_name = {r["branch"]: r for r in rows}
-    cuerpo = ""
-    cuerpo += encabezado_grupo("PROPIAS")
-    for i, b in enumerate(PROPIAS):
-        cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
-    cuerpo += fila_subtotal("Subtotal Propias", propias)
-    cuerpo += encabezado_grupo("FRANQUICIAS")
-    for i, b in enumerate(FRANQUICIAS):
-        cuerpo += fila(by_name[b], "#ffffff" if i % 2 == 0 else "#fafafa")
-    cuerpo += fila_subtotal("Subtotal Franquicias", franquicias)
+    cuerpo = (grupo("PROPIAS") + "".join(fila(by_name[b], b) for b in PROPIAS)
+              + fila(propias, "Subtotal Propias", sub=True)
+              + grupo("FRANQUICIAS") + "".join(fila(by_name[b], b) for b in FRANQUICIAS)
+              + fila(franquicias, "Subtotal Franquicias", sub=True))
 
-    html = f"""<!DOCTYPE html>
+    th = lambda txt, al, pad: (f'<th style="padding:{pad};text-align:{al};color:#ffffff;font-size:10px;'
+                              f'letter-spacing:1px;font-weight:700;">{txt}</th>')
+    titulo = lambda txt: f'<div style="font-size:11px;letter-spacing:2px;color:{GRIS};margin-bottom:8px;">{txt}</div>'
+
+    return f"""<!DOCTYPE html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#eeeeee;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eeeeee;">
-<tr><td align="center" style="padding:24px 12px;">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head>
+<body style="margin:0;padding:0;background:#e9edf3;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e9edf3;">
+<tr><td align="center" style="padding:16px 8px;">
 
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,0.12);">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
 
   <!-- HEADER -->
-  <tr><td style="background:#000000;padding:38px 32px 32px 32px;text-align:center;">
-    <img src="cid:logo" alt="Lucciano's" width="190" style="display:block;margin:0 auto;max-width:190px;height:auto;">
-    <div style="color:#bdbdbd;font-size:12px;letter-spacing:4px;margin-top:18px;">REPORTE DE VENTAS DIARIO</div>
-    <div style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:2px;margin-top:14px;">{fecha_larga}</div>
+  <tr><td style="background:{AZUL_OSC};padding:18px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td style="vertical-align:middle;"><img src="cid:logo" alt="Lucciano's" width="112" style="display:block;max-width:112px;height:auto;"></td>
+      <td style="text-align:right;vertical-align:middle;">
+        <div style="color:#8fa3c8;font-size:10px;letter-spacing:2px;">REPORTE DIARIO</div>
+        <div style="color:#ffffff;font-size:14px;font-weight:700;margin-top:4px;">{fecha_larga}</div></td>
+    </tr></table>
   </td></tr>
 
-  <!-- KPIs (alturas igualadas con height fijo en el contenido) -->
-  <tr><td style="padding:30px 32px 6px 32px;">
-    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;">CONSOLIDADO · 6 SUCURSALES</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;">
-      <tr>
-        <td width="33%" style="padding-right:7px;vertical-align:top;">
-          <div style="background:#111111;border-radius:12px;padding:20px;height:118px;">
-            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">VENTA DEL DÍA</div>
-            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['dia'])}</div>
-            <div style="color:#777777;font-size:11px;margin-top:6px;">6 sucursales</div>
-          </div>
-        </td>
-        <td width="34%" style="padding:0 7px;vertical-align:top;">
-          <div style="background:#111111;border-radius:12px;padding:20px;height:118px;">
-            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a26_lbl}</div>
-            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a26'])}</div>
-            <div style="color:#777777;font-size:11px;margin-top:6px;">mes en curso</div>
-          </div>
-        </td>
-        <td width="33%" style="padding-left:7px;vertical-align:top;">
-          <div style="background:#f5f5f5;border-radius:12px;padding:20px;height:118px;">
-            <div style="color:#9a9a9a;font-size:10px;letter-spacing:1px;">{a25_lbl}</div>
-            <div style="color:#111111;font-size:22px;font-weight:800;margin-top:8px;letter-spacing:-0.5px;">{money(totals['a25'])}</div>
-            <div style="margin-top:8px;">{chip(totals['pct'], totals['diff'])}</div>
-          </div>
-        </td>
+  <!-- ACUMULADO DEL MES -->
+  <tr><td style="padding:18px 16px 4px 16px;">
+    <div style="background:{AZUL};border-radius:14px;padding:22px 20px;">{hero}</div>
+  </td></tr>
+
+  <!-- AYER -->
+  <tr><td style="padding:18px 24px 4px 24px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6fb;border-radius:12px;"><tr>{kpis}</tr></table>
+  </td></tr>
+
+  <!-- VARIACION POR SUCURSAL -->
+  <tr><td style="padding:24px 24px 4px 24px;">
+    {titulo(f"VARIACIÓN DEL MES · {yy} vs {ya}")}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">{variacion}</table>
+  </td></tr>
+
+  <!-- DETALLE -->
+  <tr><td style="padding:24px 12px 24px 12px;">
+    <div style="margin:0 12px;">{titulo("DETALLE POR SUCURSAL")}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid {LINEA};border-radius:12px;overflow:hidden;">
+      <tr style="background:{AZUL};">
+        {th("SUCURSAL", "left", "11px 0 11px 16px")}{th("AYER", "right", "11px 8px")}{th(f"ACUM. {mes.upper()}", "right", "11px 8px")}{th("VAR.", "right", "11px 16px 11px 4px")}
+      </tr>
+      {cuerpo}
+      <tr style="background:{AZUL};">
+        <td style="padding:14px 0 14px 16px;"><div style="font-size:14px;font-weight:800;color:#ffffff;">TOTAL</div>{linea_tp(T, AZUL_SUAVE)}</td>
+        <td style="padding:14px 8px;text-align:right;font-size:14px;font-weight:800;color:#ffffff;">{money_s(T['dia'])}</td>
+        <td style="padding:14px 8px;text-align:right;">
+          <div style="font-size:14px;font-weight:800;color:#ffffff;">{money_s(T['a26'])}</div>
+          <div style="font-size:11px;color:{AZUL_SUAVE};margin-top:3px;">{money_s(T['a25'])} en {ya}</div></td>
+        <td style="padding:14px 16px 14px 4px;text-align:right;">{_chip(T['pct'])}
+          <div style="font-size:11px;color:{VERDE_CLARO if T['pct'] >= 0 else '#ff9a9a'};margin-top:4px;">{dif_s(T['diff'])}</div></td>
       </tr>
     </table>
   </td></tr>
 
-  <!-- PROGRESO -->
-  <tr><td style="padding:22px 32px 6px 32px;">
-    <div style="background:#fafafa;border-radius:12px;padding:20px 22px;">
-      <div style="color:#9a9a9a;font-size:11px;letter-spacing:2px;margin-bottom:6px;">AVANCE DEL MES vs AÑO ANTERIOR</div>
-      <img src="cid:progreso" alt="Avance del mes" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
-    </div>
-  </td></tr>
-
-  <!-- GRAFICO COMPARATIVO -->
-  <tr><td style="padding:22px 32px 6px 32px;">
-    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:12px;">COMPARATIVO POR SUCURSAL · {anio_corto} vs {anio_ant}</div>
-    <img src="cid:comparativo" alt="Comparativo por sucursal" width="536" style="display:block;width:100%;max-width:536px;height:auto;">
-  </td></tr>
-
-  <!-- DETALLE -->
-  <tr><td style="padding:24px 32px 36px 32px;">
-    <div style="color:#9a9a9a;font-size:11px;letter-spacing:3px;margin-bottom:14px;">DETALLE POR SUCURSAL</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.06);">
-      <thead>
-        <tr style="background:#111111;">
-          <th style="padding:13px 18px;text-align:left;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">SUCURSAL</th>
-          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">DÍA</th>
-          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a26_lbl}</th>
-          <th style="padding:13px 12px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">{a25_lbl}</th>
-          <th style="padding:13px 18px;text-align:right;color:#ffffff;font-size:10px;letter-spacing:1px;font-weight:700;">VARIACIÓN</th>
-        </tr>
-      </thead>
-      <tbody>{cuerpo}
-        <tr style="background:#111111;">
-          <td style="padding:17px 18px;font-weight:800;color:#ffffff;font-size:14px;">TOTAL GENERAL</td>
-          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['dia'])}</td>
-          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a26'])}</td>
-          <td style="padding:17px 12px;text-align:right;font-weight:800;color:#ffffff;font-size:14px;">{money(totals['a25'])}</td>
-          <td style="padding:17px 18px;text-align:right;">{chip(totals['pct'], totals['diff'])}</td>
-        </tr>
-      </tbody>
-    </table>
-  </td></tr>
-
   <!-- FOOTER -->
-  <tr><td style="background:#000000;padding:20px 32px;text-align:center;">
-    <div style="color:#777777;font-size:11px;letter-spacing:1px;">LUCCIANO'S USA · Reporte automático generado el {fecha.strftime('%d/%m/%Y')}</div>
+  <tr><td style="background:{AZUL};padding:16px 24px;text-align:center;">
+    <div style="color:{AZUL_SUAVE};font-size:11px;">Lucciano's USA · Ventas netas sin impuestos · Datos al {fecha.strftime('%d/%m/%Y')}</div>
   </td></tr>
 
 </table>
-
 </td></tr>
 </table>
 </body>
 </html>"""
-    return html
 
 
 if __name__ == "__main__":

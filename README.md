@@ -64,14 +64,14 @@ El comparativo del año anterior sale siempre de `data/Ventas_Master_2025.xlsx` 
 | Archivo | Qué hace |
 |---|---|
 | `fetch_touchbistro.py` | Baja el adjunto diario del mail (IMAP). Distingue el diario del mensual: fecha inicio == fecha fin |
-| `report.py` | Reporte diario. `parse_excel_full()` es **el** parser: consolida los 7 venues en 6 sucursales vía `VENUE_MAP` (las dos Vineland se suman) y saca Net Sales + Bill Count |
+| `report.py` | Reporte diario. `parse_excel_full()` es **el** parser: consolida los 7 venues en 6 sucursales vía `VENUE_MAP` (las dos Vineland se suman) y saca Net Sales + Bill Count. Diseño "A4" (azul marino): acumulado del mes destacado, KPIs de ayer con tickets y ticket promedio, variación por sucursal ordenada y detalle. Ancho fluido (máx. 600px) para que se lea bien en el celular |
 | `historico.py` | Registra el día en `data/historico_<año>.json`. Idempotente: la fecha es la clave |
-| `generar_acum2025.py` | Comparativo del diario (1° del mes al día X) |
+| `generar_acum2025.py` | Comparativo del diario (1° del mes al día X): venta y tickets del año anterior |
 | `generar_acum_ant.py` | Comparativo **genérico por rango**. Lo usan el semanal y el cierre |
 | `report_semanal.py` | Reporte semanal (lunes a domingo) |
 | `report_cierre.py` | Cierre mensual + snapshot en `data/cierres.json`. Registra el mes en `mensual.py` y agrega el bloque **Acumulado del año (YTD)** interanual |
 | `mensual.py` | Master mensual (24+ meses) y métricas de largo plazo: **acum. últimos 12 meses** (columna del semanal) y **acumulado del año / YTD** (bloque del cierre). Falla en rojo si a una ventana le falta un mes |
-| `charts.py` | Los gráficos (matplotlib, PNG transparentes, embebidos por CID) |
+| `charts.py` | Los gráficos del semanal y el cierre (matplotlib, PNG transparentes, embebidos por CID). El diario ya no usa PNG: sus barras se dibujan en HTML |
 | `send_mail.py` | Gmail SMTP. Primer destinatario en Para, el resto en CC |
 | `fetch_historico.py` | **One-shot**: rescata del IMAP los días viejos que sigan en la casilla |
 

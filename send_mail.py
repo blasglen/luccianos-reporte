@@ -1,9 +1,8 @@
 """
 Envia el reporte HTML por Gmail via SMTP usando un App Password.
-Incrusta imagenes inline (Content-ID) referenciadas en el HTML como cid:<nombre>:
-  - cid:logo        -> Logo.png
-  - cid:comparativo -> charts/comparativo.png
-  - cid:progreso    -> charts/progreso.png
+Incrusta imagenes inline (Content-ID) referenciadas en el HTML como cid:<nombre>.
+El diario solo lleva el logo (cid:logo -> Logo.png): sus barras son HTML.
+El semanal y el cierre pasan su propia lista de imagenes por linea de comandos.
 
 Variables de entorno (inyectadas por GitHub Actions desde Secrets):
   GMAIL_USER      -> casilla emisora (la cuenta gmail que envia)
@@ -22,8 +21,6 @@ from pathlib import Path
 # (cid, ruta)
 INLINE_IMAGES = [
     ("logo", "Logo.png"),
-    ("comparativo", "charts/comparativo.png"),
-    ("progreso", "charts/progreso.png"),
 ]
 
 

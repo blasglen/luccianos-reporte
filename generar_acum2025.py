@@ -9,7 +9,8 @@ Que hace:
   2. Suma del master (data/Ventas_Master_2025.xlsx) la venta de cada local
      desde el 1ro del mismo mes del anio anterior hasta ese dia (2025-06-01..2025-06-30).
   3. Escribe Acumulado_interanual.xlsx con el MISMO formato que TouchBistro:
-     fila 0 = titulo con rango, fila 1 = header, filas 2+ = local y Net Sales en col C.
+     fila 0 = titulo con rango, fila 1 = header, filas 2+ = local, Net Sales en col C
+     y Bill Count (tickets) en col F.
      Usa los nombres estilo "#00X ..." para que report.py los reconozca (VENUE_MAP).
 
 Falla RUIDOSA: si el master no tiene datos para ese mes, corta con error.
@@ -66,8 +67,9 @@ def dia_de_corte():
 
 
 def acumular_2025(corte):
-    """Suma del master la columna 'Sales' por local, desde el 1ro del mes
-    del anio anterior hasta el mismo dia de corte."""
+    """Suma del master las columnas 'Sales' y 'Tickets' por local, desde el 1ro
+    del mes del anio anterior hasta el mismo dia de corte.
+    Devuelve (ini, fin, acum_ventas, acum_tickets)."""
     ini = date(corte.year - 1, corte.month, 1)
     fin = date(corte.year - 1, corte.month, corte.day)
 
@@ -77,8 +79,10 @@ def acumular_2025(corte):
     col_local = header.index("Local")
     col_fecha = header.index("Fecha")
     col_sales = header.index("Sales")
+    col_tks = header.index("Tickets")
 
     acum = {cod: 0.0 for cod in ORDEN}
+    tks = {cod: 0 for cod in ORDEN}
     hubo_datos = False
     for r in ws.iter_rows(min_row=2, values_only=True):
         if r[col_local] is None:
@@ -89,6 +93,7 @@ def acumular_2025(corte):
         f = _as_date(r[col_fecha])
         if ini <= f <= fin:
             acum[cod] += _to_float(r[col_sales])
+            tks[cod] += int(_to_float(r[col_tks]))
             hubo_datos = True
 
     if not hubo_datos:
@@ -96,10 +101,10 @@ def acumular_2025(corte):
             f"[ERROR] El master 2025 no tiene datos para {ini}..{fin}. "
             f"Cargale ese mes al master antes de correr."
         )
-    return ini, fin, acum
+    return ini, fin, acum, tks
 
 
-def escribir(ini, fin, acum):
+def escribir(ini, fin, acum, tks):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Sales Summary"
@@ -107,18 +112,21 @@ def escribir(ini, fin, acum):
     ws.append([titulo, None, None, None, None, None])
     ws.append(["Venue Name", "Gross Sales", "Net Sales", "Discounts", "Voids", "Bill Count"])
     total = 0.0
+    total_tks = 0
     for cod in ORDEN:
         v = round(acum[cod], 2)
         total += v
+        total_tks += tks[cod]
         # Net Sales va en la columna C (index 2); Gross lo repito, no se usa.
-        ws.append([CODE_TO_TBKEY[cod], v, v, 0, 0, 0])
-    ws.append([f"REPORT SUMMARY ({len(ORDEN)} entries)", total, total, 0, 0, 0])
+        # Bill Count (tickets) en la columna F (index 5), igual que TouchBistro.
+        ws.append([CODE_TO_TBKEY[cod], v, v, 0, 0, tks[cod]])
+    ws.append([f"REPORT SUMMARY ({len(ORDEN)} entries)", total, total, 0, 0, total_tks])
     wb.save(SALIDA)
 
 
 if __name__ == "__main__":
     corte = dia_de_corte()
-    ini, fin, acum = acumular_2025(corte)
-    escribir(ini, fin, acum)
+    ini, fin, acum, tks = acumular_2025(corte)
+    escribir(ini, fin, acum, tks)
     tot = sum(acum.values())
     print(f"OK - Acumulado 2025 {ini}..{fin} generado. Total: ${tot:,.2f}")
