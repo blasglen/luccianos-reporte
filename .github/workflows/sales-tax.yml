@@ -6,6 +6,9 @@ name: Sales Tax Mensual
 # Un solo disparador automatico (schedule) + boton manual para reintentar.
 # 13:00 UTC = 10:00 AR: TouchBistro manda los reportes de madrugada.
 on:
+  # TEMPORAL (solo para probar en la rama del borrador): sacar antes de pasar a main.
+  push:
+    branches: ["borrador/sales-tax"]
   schedule:
     - cron: "0 13 1 * *"
   workflow_dispatch:
@@ -28,7 +31,7 @@ jobs:
           python-version: "3.12"
       - run: pip install openpyxl matplotlib
       - name: Bajar reporte mensual de TouchBistro (mail -> Ventas_mes.xlsx)
-        if: inputs.prueba_mes == ''
+        if: github.event_name != 'push' && inputs.prueba_mes == ''
         env:
           IMAP_USER: ${{ secrets.IMAP_USER }}
           IMAP_APP_PASS: ${{ secrets.IMAP_APP_PASS }}
@@ -37,7 +40,7 @@ jobs:
         id: gen
         env:
           SALES_TAX_DATOS: ${{ secrets.SALES_TAX_DATOS }}
-          PRUEBA_MES: ${{ inputs.prueba_mes }}
+          PRUEBA_MES: ${{ github.event_name == 'push' && '2026-09' || inputs.prueba_mes }}
         run: |
           if [ -n "$PRUEBA_MES" ]; then
             python sales_tax.py --desde-historial "$PRUEBA_MES"
