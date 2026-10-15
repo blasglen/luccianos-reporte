@@ -219,6 +219,8 @@ def main():
     filas = calcular(datos)
     PREVIEW.write_text(render(desde, hasta, filas, avisos), encoding="utf-8")
     asunto = f"Sales tax {MESES_ES[desde.month].capitalize()} {desde.year} - Lucciano's USA"
+    if "--desde-historial" in sys.argv:
+        asunto = "[PRUEBA] " + asunto
     gh = os.environ.get("GITHUB_OUTPUT")
     if gh:
         with open(gh, "a", encoding="utf-8") as f:
