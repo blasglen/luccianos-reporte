@@ -44,9 +44,12 @@ jobs:
           else
             python sales_tax.py Ventas_mes.xlsx
           fi
-      - name: Enviar a admin@luccianos.us
+      # Este mail sale DESDE admin@luccianos.us (los demas reportes salen de la
+      # casilla de siempre). Necesita el App Password de admin en el Secret
+      # SALES_TAX_APP_PASS.
+      - name: Enviar a admin@luccianos.us (desde admin@luccianos.us)
         env:
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          GMAIL_USER: admin@luccianos.us
+          GMAIL_APP_PASS: ${{ secrets.SALES_TAX_APP_PASS }}
           MAIL_TO_SALES_TAX: admin@luccianos.us
         run: python send_mail.py "${{ steps.gen.outputs.subject }}" preview_sales_tax.html --to-env MAIL_TO_SALES_TAX logo=Logo.png
