@@ -6,7 +6,7 @@ De donde salen los numeros:
   El 1ro de cada mes TouchBistro manda el MISMO reporte "Sales Summary" del diario,
   pero con el mes completo (fecha inicio = dia 1, fecha fin = ultimo dia). Ese
   cuadro NO trae el impuesto cobrado: el impuesto se CALCULA aca como
-      base imponible = Net Sales del mes (sin impuesto, despues de descuentos)
+      base imponible = Gross Sales - Discounts del mes (= Net Sales de TB, sin impuesto)
       impuesto       = base x (6% estatal + surtax del condado)
 
 Control: la base de cada local se compara contra la suma del historial diario
@@ -140,7 +140,14 @@ def calcular(datos):
         if b not in datos:
             raise SystemExit(f"[ERROR] {b} no aparece en el reporte mensual.")
         d = datos[b]
-        base = round(d["neta"], 2)
+        # Base imponible = Gross Sales - Discounts (del cuadro de TouchBistro).
+        # Tiene que dar igual a Net Sales (TB ya la informa neta de descuentos):
+        # si no, se avisa arriba del mail. Sin Excel mensual (prueba desde el
+        # historial) no hay Gross ni Discounts: se usa la venta neta.
+        if d["bruta"] is not None:
+            base = round(d["bruta"] - d["descuentos"], 2)
+        else:
+            base = round(d["neta"], 2)
         estatal = round(base * ESTATAL, 2)
         surtax = round(base * cfg["surtax"], 2)
         filas.append({"suc": b, "reg": reg.get(b, {}), "color": COLORES.get(b, "#1a1a1a"), **cfg, **d, "base": base, "estatal": estatal, "sur": surtax,
@@ -162,10 +169,11 @@ def render(desde, hasta, filas, avisos, en_cero=()):
 
     bloques = ""
     for f in filas:
-        extra = ""
         if f["bruta"] is not None:
-            extra = (linea("Venta bruta", plata(f["bruta"], 2), mut=True)
-                     + linea("Descuentos", plata(-f["descuentos"], 2), mut=True))
+            extra = (linea("Ventas (Gross Sales)", plata(f["bruta"], 2))
+                     + linea("Menos: Discounts", plata(-f["descuentos"], 2)))
+        else:
+            extra = linea("Ventas netas (sin detalle de descuentos)", plata(f["neta"], 2), mut=True)
         r = f["reg"]
         titulo = f'{r["entidad"]} – {r["ubicacion"]}' if r.get("entidad") else f["suc"]
         ids = ""
@@ -186,7 +194,9 @@ def render(desde, hasta, filas, avisos, en_cero=()):
   {ids}
   <table role="presentation" style="width:100%;margin-top:10px">
    {extra}
-   {linea("Ventas netas = base imponible", plata(f["base"], 2), fuerte=True)}
+   <tr><td style="padding:12px 10px;background:#f5f3ef;border-radius:8px 0 0 8px;font-size:17px;font-weight:800">Base imponible</td>
+       <td style="padding:12px 10px;background:#f5f3ef;border-radius:0 8px 8px 0;font-size:22px;font-weight:800;text-align:right;white-space:nowrap">{plata(f["base"], 2)}</td></tr>
+   <tr><td colspan="2" style="height:6px;font-size:0;line-height:0">&nbsp;</td></tr>
    {linea("Impuesto estatal 6%", plata(f["estatal"], 2))}
    {linea(f"Surtax {f['condado']} {f['surtax'] * 100:.1f}%", plata(f["sur"], 2))}
   </table>
@@ -218,7 +228,7 @@ def render(desde, hasta, filas, avisos, en_cero=()):
  <div class="sec">
   <div class="lbl">Sales tax {mes.lower()} {desde.year} · {len(filas)} sucursales propias</div>
   <div class="big2">{plata(tot["total"], 2)}</div>
-  <div class="msub">Sobre ventas netas por {plata(tot["base"], 2)}: {plata(tot["estatal"], 2)} de impuesto estatal y {plata(tot["sur"], 2)} de surtax de condado. Período {desde.strftime("%d/%m")} al {hasta.strftime("%d/%m/%Y")}.</div>
+  <div class="msub">Sobre una base imponible de {plata(tot["base"], 2)}: {plata(tot["estatal"], 2)} de impuesto estatal y {plata(tot["sur"], 2)} de surtax de condado. Período {desde.strftime("%d/%m")} al {hasta.strftime("%d/%m/%Y")}.</div>
   {aviso}
   <table role="presentation" style="margin-top:14px"><tr><td style="background:#1a1a1a;border-radius:8px;padding:10px 16px">
     <a href="{LOGIN_DOR}" style="color:#ffffff;font-weight:700;font-size:14px;text-decoration:none">Ingresar al portal de Florida DOR →</a>
@@ -226,7 +236,7 @@ def render(desde, hasta, filas, avisos, en_cero=()):
  </div>'''
     nota = '''
  <div class="sec">
-  <div class="nota">El impuesto está <b>calculado</b> sobre la venta neta del reporte mensual de TouchBistro (Sales Summary), que no informa el impuesto cobrado. Tasas: 6% estatal + surtax del condado según el formulario DR-15DSS del Florida Department of Revenue. No incluye el descuento por presentación en término (collection allowance).</div>
+  <div class="nota">El impuesto está <b>calculado</b> sobre la base imponible (Gross Sales − Discounts del reporte mensual de TouchBistro, Sales Summary), que no informa el impuesto cobrado. Tasas: 6% estatal + surtax del condado según el formulario DR-15DSS del Florida Department of Revenue. No incluye el descuento por presentación en término (collection allowance).</div>
  </div>'''
     card = tarjeta(header("Sales tax", f"{mes} {desde.year}"), resumen, bloques, nota,
                    pie=pie(f"Lucciano's USA · Sucursales propias · {desde.strftime('%d/%m')} al {hasta.strftime('%d/%m/%Y')}"))
@@ -244,6 +254,11 @@ def main():
         if desde.day != 1 or hasta.month != desde.month:
             raise SystemExit(f"[ERROR] El reporte no es de un mes completo: {desde}..{hasta}.")
         avisos = control_historial(desde, hasta, datos)
+        for b in SUCURSALES:
+            d = datos.get(b)
+            if d and abs((d["bruta"] - d["descuentos"]) - d["neta"]) > 0.01:
+                avisos.append(f"{b}: Gross Sales − Discounts (${d['bruta'] - d['descuentos']:,.2f}) no coincide con "
+                              f"Net Sales de TouchBistro (${d['neta']:,.2f}). Revisar el cuadro antes de declarar.")
     filas = calcular(datos)
     en_cero = datos_registro().get("_presentar_en_cero", [])
     PREVIEW.write_text(render(desde, hasta, filas, avisos, en_cero), encoding="utf-8")
