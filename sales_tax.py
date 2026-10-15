@@ -43,7 +43,9 @@ SUCURSALES = {
 # Datos de registro de cada local (razon social, ubicacion, Certificate # y
 # Business Partner #). NO van en el codigo: el repo es publico y esos numeros
 # sirven para entrar al portal del DOR. Se leen del Secret SALES_TAX_DATOS (JSON):
-#   {"Florida Mall": {"entidad": "...", "ubicacion": "...", "cert": "...", "bp": "..."}, ...}
+#   {"Florida Mall": {"entidad": "...", "ubicacion": "...", "cert": "...", "bp": "..."}, ...,
+#    "_presentar_en_cero": [{"entidad": "...", "cert": "...", "bp": "..."}]}
+# "_presentar_en_cero": entidades sin ventas que igual declaran todos los meses (en $0).
 # Color de la franja de titulo de cada local (para que no se pierdan al leer).
 COLORES = {"Florida Mall": "#4f46e5", "Vineland": "#0f766e", "Weston": "#b45309"}
 
@@ -146,7 +148,7 @@ def calcular(datos):
     return filas
 
 
-def render(desde, hasta, filas, avisos):
+def render(desde, hasta, filas, avisos, en_cero=()):
     from mail_base import header, tarjeta, pie, documento, plata, num, callout
     mes = MESES_ES[desde.month].capitalize()
     tot = {k: round(sum(f[k] for f in filas), 2) for k in ("base", "estatal", "sur", "total")}
@@ -190,6 +192,27 @@ def render(desde, hasta, filas, avisos):
   </table>
  </div>'''
 
+    # Entidades sin ventas que igual tienen que presentar la declaracion (en $0).
+    for e in en_cero:
+        ids0 = ""
+        if e.get("cert"):
+            ids0 = (f'<table role="presentation" style="width:100%;margin-top:10px;background:#f5f3ef;border-radius:8px"><tr>'
+                    f'<td style="padding:8px 10px"><div class="mut" style="font-size:11px">Certificate #</div>'
+                    f'<div class="b" style="font-size:14px;letter-spacing:.3px">{e["cert"]}</div></td>'
+                    f'<td style="padding:8px 10px;text-align:right"><div class="mut" style="font-size:11px">Business Partner #</div>'
+                    f'<div class="b" style="font-size:14px;letter-spacing:.3px">{e.get("bp", "")}</div></td></tr></table>')
+        bloques += f'''
+ <div class="sec">
+  <table role="presentation" style="width:100%;background:#57534e;border-radius:12px"><tr>
+    <td style="padding:14px 16px;vertical-align:middle"><div style="font-size:15px;font-weight:800;color:#ffffff;line-height:1.3">{e.get("entidad", "")}</div>
+      <div style="font-size:12px;color:#ffffff;opacity:.85;margin-top:3px">Sin ventas en el período</div></td>
+    <td style="padding:14px 16px;text-align:right;vertical-align:middle;white-space:nowrap"><div style="font-size:12px;color:#ffffff;opacity:.85">Presentar en cero</div>
+      <div style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-.5px">{plata(0, 2)}</div></td>
+  </tr></table>
+  {ids0}
+  <div class="nota" style="margin-top:8px">La declaración se presenta igual, con ventas e impuesto en $0.00, para no generar multa por falta de presentación.</div>
+ </div>'''
+
     aviso = "".join(callout(f"⚠ {a}") for a in avisos)
     resumen = f'''
  <div class="sec">
@@ -222,7 +245,8 @@ def main():
             raise SystemExit(f"[ERROR] El reporte no es de un mes completo: {desde}..{hasta}.")
         avisos = control_historial(desde, hasta, datos)
     filas = calcular(datos)
-    PREVIEW.write_text(render(desde, hasta, filas, avisos), encoding="utf-8")
+    en_cero = datos_registro().get("_presentar_en_cero", [])
+    PREVIEW.write_text(render(desde, hasta, filas, avisos, en_cero), encoding="utf-8")
     asunto = f"Sales tax {MESES_ES[desde.month].capitalize()} {desde.year} - Lucciano's USA"
     if "--desde-historial" in sys.argv:
         asunto = "[PRUEBA] " + asunto
