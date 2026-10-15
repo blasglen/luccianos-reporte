@@ -29,6 +29,8 @@ jobs:
         run: python fetch_touchbistro.py --mensual
       - name: Calcular sales tax
         id: gen
+        env:
+          SALES_TAX_DATOS: ${{ secrets.SALES_TAX_DATOS }}
         run: python sales_tax.py Ventas_mes.xlsx
       - name: Enviar a admin@luccianos.us
         env:

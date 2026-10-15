@@ -40,6 +40,23 @@ SUCURSALES = {
     "Weston":       {"condado": "Broward", "surtax": 0.010},
 }
 
+# Datos de registro de cada local (razon social, ubicacion, Certificate # y
+# Business Partner #). NO van en el codigo: el repo es publico y esos numeros
+# sirven para entrar al portal del DOR. Se leen del Secret SALES_TAX_DATOS (JSON):
+#   {"Florida Mall": {"entidad": "...", "ubicacion": "...", "cert": "...", "bp": "..."}, ...}
+LOGIN_DOR = "https://floridarevenue.com/taxes/eservices/Pages/sutlogin.aspx"
+
+
+def datos_registro():
+    raw = os.environ.get("SALES_TAX_DATOS", "").strip()
+    if not raw:
+        print("[AVISO] Falta el Secret SALES_TAX_DATOS: el mail sale sin certificado ni Business Partner.")
+        return {}
+    try:
+        return json.loads(raw)
+    except ValueError:
+        raise SystemExit("[ERROR] El Secret SALES_TAX_DATOS no es un JSON valido.")
+
 
 def _f(v):
     if v is None:
@@ -112,6 +129,7 @@ def control_historial(desde, hasta, datos):
 
 
 def calcular(datos):
+    reg = datos_registro()
     filas = []
     for b, cfg in SUCURSALES.items():
         if b not in datos:
@@ -120,7 +138,7 @@ def calcular(datos):
         base = round(d["neta"], 2)
         estatal = round(base * ESTATAL, 2)
         surtax = round(base * cfg["surtax"], 2)
-        filas.append({"suc": b, **cfg, **d, "base": base, "estatal": estatal, "sur": surtax,
+        filas.append({"suc": b, "reg": reg.get(b, {}), **cfg, **d, "base": base, "estatal": estatal, "sur": surtax,
                       "total": round(estatal + surtax, 2), "tasa": ESTATAL + cfg["surtax"]})
     return filas
 
@@ -143,12 +161,22 @@ def render(desde, hasta, filas, avisos):
         if f["bruta"] is not None:
             extra = (linea("Venta bruta", plata(f["bruta"], 2), mut=True)
                      + linea("Descuentos", plata(-f["descuentos"], 2), mut=True))
+        r = f["reg"]
+        titulo = f'{r["entidad"]} – {r["ubicacion"]}' if r.get("entidad") else f["suc"]
+        ids = ""
+        if r.get("cert"):
+            ids = (f'<table role="presentation" style="width:100%;margin-top:10px;background:#f5f3ef;border-radius:8px"><tr>'
+                   f'<td style="padding:8px 10px"><div class="mut" style="font-size:11px">Certificate #</div>'
+                   f'<div class="b" style="font-size:14px;letter-spacing:.3px">{r["cert"]}</div></td>'
+                   f'<td style="padding:8px 10px;text-align:right"><div class="mut" style="font-size:11px">Business Partner #</div>'
+                   f'<div class="b" style="font-size:14px;letter-spacing:.3px">{r["bp"]}</div></td></tr></table>')
         bloques += f'''
  <div class="sec">
   <table role="presentation" style="width:100%"><tr>
-    <td><div class="h">{f["suc"]}</div><div class="mut sm">{f["condado"]} County · tasa {f["tasa"] * 100:.1f}% · {num(f["tickets"])} tickets</div></td>
+    <td><div class="h">{titulo}</div><div class="mut sm">{f["condado"]} County · tasa {f["tasa"] * 100:.1f}% · {num(f["tickets"])} tickets</div></td>
     <td style="text-align:right;vertical-align:top"><div class="lbl" style="margin:0">A pagar</div><div class="big2" style="font-size:24px">{plata(f["total"], 2)}</div></td>
   </tr></table>
+  {ids}
   <table role="presentation" style="width:100%;margin-top:10px">
    {extra}
    {linea("Ventas netas = base imponible", plata(f["base"], 2), fuerte=True)}
@@ -164,6 +192,9 @@ def render(desde, hasta, filas, avisos):
   <div class="big2">{plata(tot["total"], 2)}</div>
   <div class="msub">Sobre ventas netas por {plata(tot["base"], 2)}: {plata(tot["estatal"], 2)} de impuesto estatal y {plata(tot["sur"], 2)} de surtax de condado. Período {desde.strftime("%d/%m")} al {hasta.strftime("%d/%m/%Y")}.</div>
   {aviso}
+  <table role="presentation" style="margin-top:14px"><tr><td style="background:#1a1a1a;border-radius:8px;padding:10px 16px">
+    <a href="{LOGIN_DOR}" style="color:#ffffff;font-weight:700;font-size:14px;text-decoration:none">Ingresar al portal de Florida DOR →</a>
+  </td></tr></table>
  </div>'''
     nota = '''
  <div class="sec">
