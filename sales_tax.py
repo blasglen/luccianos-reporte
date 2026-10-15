@@ -44,6 +44,9 @@ SUCURSALES = {
 # Business Partner #). NO van en el codigo: el repo es publico y esos numeros
 # sirven para entrar al portal del DOR. Se leen del Secret SALES_TAX_DATOS (JSON):
 #   {"Florida Mall": {"entidad": "...", "ubicacion": "...", "cert": "...", "bp": "..."}, ...}
+# Color de la franja de titulo de cada local (para que no se pierdan al leer).
+COLORES = {"Florida Mall": "#4f46e5", "Vineland": "#0f766e", "Weston": "#b45309"}
+
 LOGIN_DOR = "https://floridarevenue.com/taxes/eservices/Pages/sutlogin.aspx"
 
 
@@ -138,7 +141,7 @@ def calcular(datos):
         base = round(d["neta"], 2)
         estatal = round(base * ESTATAL, 2)
         surtax = round(base * cfg["surtax"], 2)
-        filas.append({"suc": b, "reg": reg.get(b, {}), **cfg, **d, "base": base, "estatal": estatal, "sur": surtax,
+        filas.append({"suc": b, "reg": reg.get(b, {}), "color": COLORES.get(b, "#1a1a1a"), **cfg, **d, "base": base, "estatal": estatal, "sur": surtax,
                       "total": round(estatal + surtax, 2), "tasa": ESTATAL + cfg["surtax"]})
     return filas
 
@@ -172,9 +175,11 @@ def render(desde, hasta, filas, avisos):
                    f'<div class="b" style="font-size:14px;letter-spacing:.3px">{r["bp"]}</div></td></tr></table>')
         bloques += f'''
  <div class="sec">
-  <table role="presentation" style="width:100%"><tr>
-    <td><div class="h">{titulo}</div><div class="mut sm">{f["condado"]} County · tasa {f["tasa"] * 100:.1f}% · {num(f["tickets"])} tickets</div></td>
-    <td style="text-align:right;vertical-align:top"><div class="lbl" style="margin:0">A pagar</div><div class="big2" style="font-size:24px">{plata(f["total"], 2)}</div></td>
+  <table role="presentation" style="width:100%;background:{f["color"]};border-radius:12px"><tr>
+    <td style="padding:14px 16px;vertical-align:middle"><div style="font-size:15px;font-weight:800;color:#ffffff;line-height:1.3">{titulo}</div>
+      <div style="font-size:12px;color:#ffffff;opacity:.85;margin-top:3px">{f["condado"]} County · tasa {f["tasa"] * 100:.1f}% · {num(f["tickets"])} tickets</div></td>
+    <td style="padding:14px 16px;text-align:right;vertical-align:middle;white-space:nowrap"><div style="font-size:12px;color:#ffffff;opacity:.85">A pagar</div>
+      <div style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-.5px">{plata(f["total"], 2)}</div></td>
   </tr></table>
   {ids}
   <table role="presentation" style="width:100%;margin-top:10px">
