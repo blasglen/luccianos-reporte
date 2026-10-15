@@ -1,0 +1,38 @@
+name: Sales Tax Mensual
+
+# Dia 1 de cada mes: toma el "Sales Summary" MENSUAL que manda TouchBistro
+# (mismo cuadro que el diario, con el mes completo), calcula el sales tax de las
+# sucursales propias y lo manda SOLO a admin@luccianos.us.
+# Un solo disparador automatico (schedule) + boton manual para reintentar.
+# 13:00 UTC = 10:00 AR: TouchBistro manda los reportes de madrugada.
+on:
+  schedule:
+    - cron: "0 13 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sales-tax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install openpyxl matplotlib
+      - name: Bajar reporte mensual de TouchBistro (mail -> Ventas_mes.xlsx)
+        env:
+          IMAP_USER: ${{ secrets.IMAP_USER }}
+          IMAP_APP_PASS: ${{ secrets.IMAP_APP_PASS }}
+        run: python fetch_touchbistro.py --mensual
+      - name: Calcular sales tax
+        id: gen
+        run: python sales_tax.py Ventas_mes.xlsx
+      - name: Enviar a admin@luccianos.us
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          MAIL_TO_SALES_TAX: admin@luccianos.us
+        run: python send_mail.py "${{ steps.gen.outputs.subject }}" preview_sales_tax.html --to-env MAIL_TO_SALES_TAX logo=Logo.png

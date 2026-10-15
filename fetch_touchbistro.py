@@ -35,6 +35,42 @@ def es_diario(filename):
     return len(fechas) >= 2 and fechas[0] == fechas[1]
 
 
+def es_mensual(filename, anio, mes):
+    """True si el adjunto cubre el mes completo anio-mes (del 1 al ultimo dia)."""
+    import calendar
+    fechas = FECHAS_RE.findall(filename or "")
+    ult = calendar.monthrange(anio, mes)[1]
+    return (len(fechas) >= 2 and fechas[0] == f"{anio:04d}-{mes:02d}-01"
+            and fechas[1] == f"{anio:04d}-{mes:02d}-{ult:02d}")
+
+
+def main_mensual():
+    """Baja el reporte MENSUAL del mes anterior (mismo 'Sales Summary', rango de
+    un mes completo) a Ventas_mes.xlsx. Lo usa el mail de sales tax del dia 1."""
+    hoy = datetime.utcnow().date()
+    anio, mes = (hoy.year, hoy.month - 1) if hoy.month > 1 else (hoy.year - 1, 12)
+    M = imaplib.IMAP4_SSL("imap.gmail.com")
+    M.login(os.environ["IMAP_USER"], os.environ["IMAP_APP_PASS"])
+    M.select("INBOX")
+    since = (datetime.utcnow() - timedelta(days=5)).strftime("%d-%b-%Y")
+    typ, data = M.search(None, f'(FROM "{SENDER}" SINCE {since})')
+    for mid in reversed(data[0].split()):
+        typ, msgdata = M.fetch(mid, "(RFC822)")
+        msg = email.message_from_bytes(msgdata[0][1])
+        for part in msg.walk():
+            fn = part.get_filename()
+            if fn and fn.lower().endswith(".xlsx") and es_mensual(fn, anio, mes):
+                destino = Path(__file__).parent / "Ventas_mes.xlsx"
+                destino.write_bytes(part.get_payload(decode=True))
+                print(f"[OK] Guardado {destino.name} desde adjunto {fn}")
+                M.logout()
+                return 0
+    M.logout()
+    print(f"[ERROR] No llego el reporte mensual de {anio}-{mes:02d} de TouchBistro "
+          f"(adjunto del 1 al ultimo dia del mes).")
+    return 1
+
+
 def main():
     user = os.environ["IMAP_USER"]
     pwd = os.environ["IMAP_APP_PASS"]
@@ -82,4 +118,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Sin argumentos: el diario de siempre. Con --mensual: el del mes anterior.
+    sys.exit(main_mensual() if "--mensual" in sys.argv else main())
