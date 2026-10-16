@@ -26,7 +26,7 @@ import json
 import sys
 from pathlib import Path
 
-from report import parse_excel_full, BRANCH_ORDER
+from report import parse_excel_full, BRANCH_ORDER, VENUE_MAP
 
 BASE = Path(__file__).parent
 VENTAS = BASE / "Ventas_ayer.xlsx"
@@ -52,6 +52,22 @@ def guardar(path, data):
     )
 
 
+def bruta_y_descuentos(path):
+    """{sucursal: (gross_sales, discounts)} del mismo Excel diario (cols B y D).
+    Los usa el mail de sales tax para mostrar Gross - Discounts = base imponible."""
+    import openpyxl
+    from report import _to_float
+    out = {b: [0.0, 0.0] for b in BRANCH_ORDER}
+    filas = list(openpyxl.load_workbook(path, data_only=True).active.iter_rows(values_only=True))
+    for r in filas[2:]:
+        nombre = str(r[0] or "").strip()
+        if not nombre or nombre.upper().startswith("REPORT") or nombre not in VENUE_MAP:
+            continue
+        out[VENUE_MAP[nombre]][0] += _to_float(r[1])
+        out[VENUE_MAP[nombre]][1] += _to_float(r[3])
+    return out
+
+
 def main():
     if not VENTAS.exists():
         print(f"[ERROR] No existe {VENTAS.name}. Corrio fetch_touchbistro.py?")
@@ -72,11 +88,14 @@ def main():
     clave = fecha_fin.isoformat()
     ya_estaba = clave in hist
 
-    # Formato: {"Sucursal": {"venta": 1234.56, "tickets": 87}}
+    # Formato: {"Sucursal": {"venta": 1234.56, "tickets": 87, "bruta": 1236.0, "descuentos": 1.44}}
+    # (bruta y descuentos desde oct/2026; los dias viejos solo tienen venta y tickets)
     # Los tickets salen de Bill Count. Con venta + tickets se puede calcular el
     # ticket promedio, que es lo que contesta si vendimos mas porque vino mas
     # gente o porque cada uno gasta mas.
-    hist[clave] = {b: {"venta": round(ventas[b], 2), "tickets": tickets[b]}
+    bd = bruta_y_descuentos(VENTAS)
+    hist[clave] = {b: {"venta": round(ventas[b], 2), "tickets": tickets[b],
+                       "bruta": round(bd[b][0], 2), "descuentos": round(bd[b][1], 2)}
                    for b in BRANCH_ORDER}
     guardar(path, hist)
 

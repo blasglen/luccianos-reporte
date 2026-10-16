@@ -95,20 +95,29 @@ def leer_mensual(path):
 
 
 def desde_historial(anio, mes):
-    """Borrador sin el Excel mensual: suma el historial diario (solo venta neta y tickets)."""
+    """PRUEBA sin el Excel mensual: suma el historial diario. Usa Gross Sales y
+    Discounts solo si TODOS los dias del mes los tienen (se guardan desde oct/2026);
+    si no, deja bruta/descuentos en None y el mail muestra solo la venta neta.
+    Nunca inventa un descuento en cero."""
     import calendar
     hist = json.loads((BASE / "data" / f"historico_{anio}.json").read_text(encoding="utf-8"))
     ult = calendar.monthrange(anio, mes)[1]
-    datos = {}
+    dias = []
     for d in range(1, ult + 1):
         dia = hist.get(date(anio, mes, d).isoformat())
         if dia is None:
             raise SystemExit(f"[ERROR] Falta el {date(anio, mes, d)} en el historial.")
+        dias.append(dia)
+    con_detalle = all("bruta" in v and "descuentos" in v for dia in dias for v in dia.values())
+    datos = {}
+    for dia in dias:
         for b, v in dia.items():
-            # El historial solo guarda la venta neta: para la PRUEBA se muestra como
-            # Gross con Discounts en 0, asi se ve la misma estructura del mail real.
-            x = datos.setdefault(b, {"bruta": 0.0, "neta": 0.0, "descuentos": 0.0, "anulados": 0.0, "tickets": 0})
-            x["bruta"] += v["venta"]; x["neta"] += v["venta"]; x["tickets"] += v["tickets"]
+            x = datos.setdefault(b, {"bruta": 0.0 if con_detalle else None, "neta": 0.0,
+                                     "descuentos": 0.0 if con_detalle else None,
+                                     "anulados": None, "tickets": 0})
+            x["neta"] += v["venta"]; x["tickets"] += v["tickets"]
+            if con_detalle:
+                x["bruta"] += v["bruta"]; x["descuentos"] += v["descuentos"]
     return date(anio, mes, 1), date(anio, mes, ult), datos
 
 
