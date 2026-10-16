@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       prueba_mes:
-        description: "PRUEBA: mes ya cerrado (AAAA-MM) armado desde el historial diario. Vacío = mes anterior desde TouchBistro."
+        description: "PRUEBA: mes ya cerrado (AAAA-MM). Usa pruebas/Ventas_mes_AAAA-MM.xlsx si existe; si no, el historial diario. Vacío = mes anterior desde TouchBistro."
         required: false
         default: ""
 
@@ -39,7 +39,10 @@ jobs:
           SALES_TAX_DATOS: ${{ secrets.SALES_TAX_DATOS }}
           PRUEBA_MES: ${{ inputs.prueba_mes }}
         run: |
-          if [ -n "$PRUEBA_MES" ]; then
+          if [ -n "$PRUEBA_MES" ] && [ -f "pruebas/Ventas_mes_$PRUEBA_MES.xlsx" ]; then
+            # Prueba con un reporte mensual real de TouchBistro guardado en pruebas/
+            python sales_tax.py "pruebas/Ventas_mes_$PRUEBA_MES.xlsx" --prueba
+          elif [ -n "$PRUEBA_MES" ]; then
             python sales_tax.py --desde-historial "$PRUEBA_MES"
           else
             python sales_tax.py Ventas_mes.xlsx

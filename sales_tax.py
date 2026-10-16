@@ -16,6 +16,7 @@ con un aviso arriba, para revisar antes de declarar.
 Uso:
     python sales_tax.py Ventas_mes.xlsx         -> arma preview_sales_tax.html
     python sales_tax.py --desde-historial 2026-09   (borrador sin el Excel mensual)
+    python sales_tax.py pruebas/Ventas_mes_2026-09.xlsx --prueba   (prueba con un mensual real)
 """
 import json
 import os
@@ -260,7 +261,8 @@ def main():
         desde, hasta, datos = desde_historial(anio, mes)
         avisos = []
     else:
-        path = sys.argv[1] if len(sys.argv) > 1 else str(BASE / "Ventas_mes.xlsx")
+        args = [a for a in sys.argv[1:] if not a.startswith("--")]
+        path = args[0] if args else str(BASE / "Ventas_mes.xlsx")
         desde, hasta, datos = leer_mensual(path)
         if desde.day != 1 or hasta.month != desde.month:
             raise SystemExit(f"[ERROR] El reporte no es de un mes completo: {desde}..{hasta}.")
@@ -274,7 +276,7 @@ def main():
     en_cero = datos_registro().get("_presentar_en_cero", [])
     PREVIEW.write_text(render(desde, hasta, filas, avisos, en_cero), encoding="utf-8")
     asunto = f"Sales tax {MESES_ES[desde.month].capitalize()} {desde.year} - Lucciano's USA"
-    if "--desde-historial" in sys.argv:
+    if "--desde-historial" in sys.argv or "--prueba" in sys.argv:
         asunto = "[PRUEBA] " + asunto
     gh = os.environ.get("GITHUB_OUTPUT")
     if gh:
