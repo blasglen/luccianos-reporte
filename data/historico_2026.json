@@ -3274,5 +3274,43 @@
       "bruta": 732.04,
       "descuentos": 1.02
     }
+  },
+  "2026-10-29": {
+    "Florida Mall": {
+      "venta": 1505.06,
+      "tickets": 104,
+      "bruta": 1505.96,
+      "descuentos": 0.9
+    },
+    "Weston": {
+      "venta": 1264.84,
+      "tickets": 73,
+      "bruta": 1266.88,
+      "descuentos": 2.04
+    },
+    "Vineland": {
+      "venta": 1023.99,
+      "tickets": 88,
+      "bruta": 1023.99,
+      "descuentos": 0.0
+    },
+    "American Dream": {
+      "venta": 576.18,
+      "tickets": 43,
+      "bruta": 579.4,
+      "descuentos": 3.22
+    },
+    "Sawgrass": {
+      "venta": 1659.18,
+      "tickets": 127,
+      "bruta": 1663.3,
+      "descuentos": 4.12
+    },
+    "Aventura": {
+      "venta": 972.57,
+      "tickets": 58,
+      "bruta": 972.57,
+      "descuentos": 0.0
+    }
   }
 }
